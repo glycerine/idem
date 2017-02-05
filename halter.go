@@ -14,6 +14,16 @@ type IdemCloseChan struct {
 	mut    sync.Mutex
 }
 
+// Reinit re-allocates the Chan, assinging
+// a new channel and reseting the state
+// as if brand new.
+func (c *IdemCloseChan) Reinit() {
+	c.mut.Lock()
+	defer c.mut.Unlock()
+	c.Chan = make(chan bool)
+	c.closed = false
+}
+
 // NewIdemCloseChan makes a new IdemCloseChan.
 func NewIdemCloseChan() *IdemCloseChan {
 	return &IdemCloseChan{
