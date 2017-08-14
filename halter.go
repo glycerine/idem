@@ -9,7 +9,7 @@ import (
 // multiple times, and it will only close
 // Chan once.
 type IdemCloseChan struct {
-	Chan   chan bool
+	Chan   chan struct{}
 	closed bool
 	mut    sync.Mutex
 }
@@ -20,14 +20,14 @@ type IdemCloseChan struct {
 func (c *IdemCloseChan) Reinit() {
 	c.mut.Lock()
 	defer c.mut.Unlock()
-	c.Chan = make(chan bool)
+	c.Chan = make(chan struct{})
 	c.closed = false
 }
 
 // NewIdemCloseChan makes a new IdemCloseChan.
 func NewIdemCloseChan() *IdemCloseChan {
 	return &IdemCloseChan{
-		Chan: make(chan bool),
+		Chan: make(chan struct{}),
 	}
 }
 
