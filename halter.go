@@ -37,8 +37,8 @@ var ErrAlreadyClosed = fmt.Errorf("Chan already closed")
 // called before. It never closes IdemClose.Chan more
 // than once, so it is safe to ignore the returned
 // error value. Close() is safe for concurrent access by multiple
-// goroutines. Close returns nil after the first time
-// it is called.
+// goroutines. Close returns nil on the initial call, and
+// ErrAlreadyClosed on any subsequent call.
 func (c *IdemCloseChan) Close() error {
 	c.mut.Lock()
 	defer c.mut.Unlock()
@@ -60,7 +60,7 @@ func (c *IdemCloseChan) IsClosed() bool {
 // Halter helps shutdown a goroutine
 type Halter struct {
 	// The owning goutine should call Done.Close() as its last
-	// actual once it has received the ReqStop() signal.
+	// action once it has received the ReqStop() signal.
 	Done IdemCloseChan
 
 	// Other goroutines call ReqStop.Close() in order
