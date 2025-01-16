@@ -66,19 +66,19 @@ func (c *IdemCloseChan) IsClosed() bool {
 type Halter struct {
 	// The owning goutine should call Done.Close() as its last
 	// action once it has received the ReqStop() signal.
-	Done IdemCloseChan
+	Done *IdemCloseChan
 
 	// Other goroutines call ReqStop.Close() in order
 	// to request that the owning goroutine stop immediately.
 	// The owning goroutine should select on ReqStop.Chan
 	// in order to recognize shutdown requests.
-	ReqStop IdemCloseChan
+	ReqStop *IdemCloseChan
 }
 
 func NewHalter() *Halter {
 	return &Halter{
-		Done:    *NewIdemCloseChan(),
-		ReqStop: *NewIdemCloseChan(),
+		Done:    NewIdemCloseChan(),
+		ReqStop: NewIdemCloseChan(),
 	}
 }
 
