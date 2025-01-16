@@ -75,3 +75,35 @@ func Test102IdemCloseChanTypical(t *testing.T) {
 		cv.So(true, cv.ShouldEqual, true) // we should get here.
 	})
 }
+
+func Test103ChildClose(t *testing.T) {
+
+	cv.Convey("IdemCloseChan AddChild should get closed when parent is", t, func() {
+
+		parent := NewIdemCloseChan()
+		child := NewIdemCloseChan()
+		parent.AddChild(child)
+
+		parent.Close()
+		if child.IsClosed() {
+			cv.So(true, cv.ShouldEqual, true)
+		} else {
+			panic("child should have been closed!")
+		}
+	})
+
+	cv.Convey("after IdemCloseChan RemoveChild, the should not be closed when parent is", t, func() {
+		parent := NewIdemCloseChan()
+		child := NewIdemCloseChan()
+		parent.AddChild(child)
+		parent.RemoveChild(child)
+
+		parent.Close()
+		if child.IsClosed() {
+			panic("child should NOT have been closed!")
+		} else {
+			// good child was not closed.
+			cv.So(true, cv.ShouldEqual, true)
+		}
+	})
+}
