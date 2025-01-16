@@ -12,6 +12,8 @@ type IdemCloseChan struct {
 	Chan   chan struct{}
 	closed bool
 	mut    sync.Mutex
+
+	children []*IdemCloseChan
 }
 
 // Reinit re-allocates the Chan, assinging
@@ -45,6 +47,9 @@ func (c *IdemCloseChan) Close() error {
 	if !c.closed {
 		close(c.Chan)
 		c.closed = true
+		for _, child := range c.children {
+			child.Close()
+		}
 		return nil
 	}
 	return ErrAlreadyClosed
@@ -99,4 +104,24 @@ func (h *Halter) IsStopRequested() bool {
 // IsDone returns true iff h.Done has been Closed().
 func (h *Halter) IsDone() bool {
 	return h.Done.IsClosed()
+}
+
+// AddChild adds a child IdemCloseChan that will
+// be closed when its parent is Close()-ed.
+func (c *IdemCloseChan) AddChild(child *IdemCloseChan) {
+	c.mut.Lock()
+	defer c.mut.Unlock()
+	c.children = append(c.children, child)
+}
+
+func (c *IdemCloseChan) RemoveChild(child *IdemCloseChan) {
+	c.mut.Lock()
+	defer c.mut.Unlock()
+
+	for i, ch := range c.children {
+		if ch == child {
+			c.children = append(c.children[:i], c.children[i+1:]...)
+			return
+		}
+	}
 }
