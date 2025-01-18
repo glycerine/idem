@@ -154,4 +154,40 @@ func Test103ChildClose(t *testing.T) {
 		}
 	})
 
+	cv.Convey("StopTree should recursively ReqStop all descendents", t, func() {
+		root := NewHalter()
+		child := NewHalter()
+		child2 := NewHalter()
+		grandchild := NewHalter()
+		greatgrandchild1 := NewHalter()
+		greatgrandchild2 := NewHalter()
+
+		root.AddChild(child)
+		root.AddChild(child2)
+		child2.AddChild(grandchild)
+		grandchild.AddChild(greatgrandchild1)
+		grandchild.AddChild(greatgrandchild2)
+
+		seen := make(map[*Halter]bool)
+		var seq []*Halter
+		root.visit(func(y *Halter) {
+			y.ReqStop.Close()
+			seen[y] = true
+			seq = append(seq, y)
+		})
+		cv.So(len(seq), cv.ShouldEqual, 6)
+		cv.So(len(seen), cv.ShouldEqual, len(seq))
+		// INVAR: no duplicates in seq, because can be none in seen,
+		// and they are the same length.
+
+		for _, h := range seq {
+			if !h.ReqStop.IsClosed() {
+				panic("child ReqStop should have been closed!")
+			} else {
+				// good child ReqStop was closed.
+				cv.So(true, cv.ShouldEqual, true)
+			}
+		}
+	})
+
 }

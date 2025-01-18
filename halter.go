@@ -3,6 +3,7 @@ package idem
 import (
 	"fmt"
 	"sync"
+	"time"
 )
 
 // IdemCloseChan can have Close() called on it
@@ -73,6 +74,9 @@ type Halter struct {
 	// The owning goroutine should select on ReqStop.Chan
 	// in order to recognize shutdown requests.
 	ReqStop *IdemCloseChan
+
+	childmut sync.Mutex // protects children
+	children []*Halter
 }
 
 func NewHalter() *Halter {
@@ -110,8 +114,8 @@ func (h *Halter) IsDone() bool {
 // be closed when its parent is Close()-ed.
 func (c *IdemCloseChan) AddChild(child *IdemCloseChan) {
 	c.mut.Lock()
-	defer c.mut.Unlock()
 	c.children = append(c.children, child)
+	c.mut.Unlock()
 }
 
 func (c *IdemCloseChan) RemoveChild(child *IdemCloseChan) {
@@ -123,5 +127,77 @@ func (c *IdemCloseChan) RemoveChild(child *IdemCloseChan) {
 			c.children = append(c.children[:i], c.children[i+1:]...)
 			return
 		}
+	}
+}
+
+func (h *Halter) AddChild(child *Halter) {
+	h.childmut.Lock()
+	h.children = append(h.children, child)
+	h.childmut.Unlock()
+}
+
+func (h *Halter) RemoveChild(child *Halter) {
+	h.childmut.Lock()
+	defer h.childmut.Unlock()
+	for i, ch := range h.children {
+		if ch == child {
+			h.children = append(h.children[:i], h.children[i+1:]...)
+			return
+		}
+	}
+}
+
+// StopTreeAndWaitTilDone first calls ReqStop.Close()
+// recursively on all children in the Halter tree.
+// Then it waits up to atMost time
+// for all tree members to Close their
+// Done.Chan. It may return much more quickly
+// than atMost, but will never wait longer.
+// A <= atMost duration will wait indefinitely.
+func (h *Halter) StopTreeAndWaitTilDone(atMost time.Duration) {
+	h.StopTree()
+	h.waitTilDoneOrAtMost(atMost)
+}
+
+// StopTree calls ReqStop.Close() on all
+// the Halter in h's tree of descendents.
+func (h *Halter) StopTree() {
+	h.visit(func(y *Halter) {
+		y.ReqStop.Close()
+	})
+}
+
+// WaitTilDoneOrAtMost waits to return until
+// all descendents have closed their Done.Chan or atMost
+// time has elapsed. If atMost is <= 0, then we
+// wait indefinitely for all the Done.Chan.
+func (h *Halter) waitTilDoneOrAtMost(atMost time.Duration) {
+
+	// a nil timeout channel will never fire in a select.
+	var to <-chan time.Time
+	if atMost > 0 {
+		to = time.After(atMost)
+	}
+	h.visit(func(y *Halter) {
+		select {
+		case <-y.Done.Chan:
+		case <-to:
+		}
+	})
+}
+
+// visit calls f on each member of h's Halter tree in
+// a pre-order traversal. f(h) is called,
+// and then f(d) is called recusively on
+// all descendants d of h.
+func (h *Halter) visit(f func(y *Halter)) {
+	f(h)
+
+	h.childmut.Lock()
+	snapshot := append([]*Halter{}, h.children...)
+	h.childmut.Unlock()
+
+	for _, child := range snapshot {
+		child.visit(f)
 	}
 }
