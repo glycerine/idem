@@ -20,6 +20,10 @@ type IdemCloseChan struct {
 // Reinit re-allocates the Chan, assinging
 // a new channel and reseting the state
 // as if brand new.
+//
+// This breaks the assumptions of the
+// recursive child close that ReqStop makes,
+// so avoid it if you depend on that.
 func (c *IdemCloseChan) Reinit() {
 	c.mut.Lock()
 	defer c.mut.Unlock()
@@ -42,6 +46,12 @@ var ErrAlreadyClosed = fmt.Errorf("Chan already closed")
 // error value. Close() is safe for concurrent access by multiple
 // goroutines. Close returns nil on the initial call, and
 // ErrAlreadyClosed on any subsequent call.
+//
+// When we actually close the underlying c.Chan,
+// we also call Close on any children, while holding
+// our mutex. This does not happen if the underlying
+// channel is already closed, so the recursion stops at
+// the depth of the first already-closed node in the tree.
 func (c *IdemCloseChan) Close() error {
 	c.mut.Lock()
 	defer c.mut.Unlock()
@@ -75,7 +85,8 @@ type Halter struct {
 	// in order to recognize shutdown requests.
 	ReqStop *IdemCloseChan
 
-	childmut sync.Mutex // protects children
+	// cmut protects children
+	cmut     sync.Mutex
 	children []*Halter
 }
 
@@ -130,41 +141,47 @@ func (c *IdemCloseChan) RemoveChild(child *IdemCloseChan) {
 	}
 }
 
+// AddChild adds child to h's children; and
+// adds child.ReqStop to the children of
+// h.ReqStop.
 func (h *Halter) AddChild(child *Halter) {
-	h.childmut.Lock()
+	h.cmut.Lock()
 	h.children = append(h.children, child)
-	h.childmut.Unlock()
+	h.ReqStop.AddChild(child.ReqStop)
+	h.cmut.Unlock()
 }
 
+// RemoveChild reverses AddChild.
 func (h *Halter) RemoveChild(child *Halter) {
-	h.childmut.Lock()
-	defer h.childmut.Unlock()
+	h.cmut.Lock()
+	defer h.cmut.Unlock()
 	for i, ch := range h.children {
 		if ch == child {
 			h.children = append(h.children[:i], h.children[i+1:]...)
 			return
 		}
 	}
+	h.ReqStop.RemoveChild(child.ReqStop)
 }
 
 // StopTreeAndWaitTilDone first calls ReqStop.Close()
-// recursively on all children in the Halter tree.
+// on h (which will recursively call ReqStop.Close()
+// on all non-closed children in the ReqStop parallel,
+// tree, efficiently stopping at the first already-closed node).
 // Then it waits up to atMost time
 // for all tree members to Close their
 // Done.Chan. It may return much more quickly
 // than atMost, but will never wait longer.
-// A <= atMost duration will wait indefinitely.
+// An atMost duration <= 0 will wait indefinitely.
 func (h *Halter) StopTreeAndWaitTilDone(atMost time.Duration) {
-	h.StopTree()
-	h.waitTilDoneOrAtMost(atMost)
-}
 
-// StopTree calls ReqStop.Close() on all
-// the Halter in h's tree of descendents.
-func (h *Halter) StopTree() {
-	h.visit(func(y *Halter) {
-		y.ReqStop.Close()
-	})
+	// since ReqStop keeps a parallel tree, we only
+	// need do this on the top level;
+	// to efficiently stop traversal at first already
+	// closed tree level.
+	h.ReqStop.Close()
+
+	h.waitTilDoneOrAtMost(atMost)
 }
 
 // WaitTilDoneOrAtMost waits to return until
@@ -189,15 +206,16 @@ func (h *Halter) waitTilDoneOrAtMost(atMost time.Duration) {
 // visit calls f on each member of h's Halter tree in
 // a pre-order traversal. f(h) is called,
 // and then f(d) is called recusively on
-// all descendants d of h.
+// all descendants d of h. Children are
+// visited while holding their parent's
+// child mutex cmut, but the parent itself is not.
 func (h *Halter) visit(f func(y *Halter)) {
 	f(h)
 
-	h.childmut.Lock()
-	snapshot := append([]*Halter{}, h.children...)
-	h.childmut.Unlock()
+	h.cmut.Lock()
+	defer h.cmut.Unlock()
 
-	for _, child := range snapshot {
+	for _, child := range h.children {
 		child.visit(f)
 	}
 }
