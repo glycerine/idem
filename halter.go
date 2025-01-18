@@ -177,7 +177,7 @@ func (h *Halter) IsDone() bool {
 func (c *IdemCloseChan) AddChild(child *IdemCloseChan) {
 	c.mut.Lock()
 	if c.closed {
-		child.Close()
+		child.CloseWithReason(c.whyClosed)
 	}
 	c.children = append(c.children, child)
 	c.mut.Unlock()
@@ -198,6 +198,11 @@ func (c *IdemCloseChan) RemoveChild(child *IdemCloseChan) {
 // AddChild adds child to h's children; and
 // adds child.ReqStop to the children of
 // h.ReqStop.
+//
+// Note that if h.ReqStop is already closed,
+// then child.ReqStop will also be
+// ClosedWithReason with the same reason
+// as h, if any is available.
 func (h *Halter) AddChild(child *Halter) {
 	h.cmut.Lock()
 	h.children = append(h.children, child)
@@ -205,7 +210,9 @@ func (h *Halter) AddChild(child *Halter) {
 	h.cmut.Unlock()
 }
 
-// RemoveChild reverses AddChild.
+// RemoveChild removes child from the set
+// of h.children. It does not undo any
+// close operation that AddChild did on addition.
 func (h *Halter) RemoveChild(child *Halter) {
 	h.cmut.Lock()
 	defer h.cmut.Unlock()
@@ -218,8 +225,8 @@ func (h *Halter) RemoveChild(child *Halter) {
 	h.ReqStop.RemoveChild(child.ReqStop)
 }
 
-// StopTreeAndWaitTilDone first calls ReqStop.Close()
-// on h (which will recursively call ReqStop.Close()
+// StopTreeAndWaitTilDone first calls ReqStop.CloseWithReason(why)
+// on h (which will recursively call ReqStop.CloseWithReason(why)
 // on all non-closed children in the ReqStop parallel,
 // tree, efficiently stopping at the first already-closed node).
 // Then it waits up to atMost time
@@ -227,13 +234,13 @@ func (h *Halter) RemoveChild(child *Halter) {
 // Done.Chan. It may return much more quickly
 // than atMost, but will never wait longer.
 // An atMost duration <= 0 will wait indefinitely.
-func (h *Halter) StopTreeAndWaitTilDone(atMost time.Duration) {
+func (h *Halter) StopTreeAndWaitTilDone(atMost time.Duration, why *string) {
 
 	// since ReqStop keeps a parallel tree, we only
 	// need do this on the top level;
 	// to efficiently stop traversal at first already
 	// closed tree level.
-	h.ReqStop.Close()
+	h.ReqStop.CloseWithReason(why)
 
 	h.waitTilDoneOrAtMost(atMost)
 }
