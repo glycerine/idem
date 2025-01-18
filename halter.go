@@ -14,22 +14,29 @@ type IdemCloseChan struct {
 	closed bool
 	mut    sync.Mutex
 
-	children []*IdemCloseChan
+	children  []*IdemCloseChan
+	whyClosed *string // CloseWithReason() sets this.
 }
 
-// Reinit re-allocates the Chan, assinging
-// a new channel and reseting the state
-// as if brand new.
+// Delete this as it makes it hard to reason
+// about the state of the tree.
 //
-// This breaks the assumptions of the
-// recursive child close that ReqStop makes,
-// so avoid it if you depend on that.
-func (c *IdemCloseChan) Reinit() {
-	c.mut.Lock()
-	defer c.mut.Unlock()
-	c.Chan = make(chan struct{})
-	c.closed = false
-}
+// // Reinit re-allocates the Chan, assinging
+// // a new channel and reseting the state
+// // as if brand new.
+// //
+// // This breaks the assumptions of the
+// // recursive child close that ReqStop makes,
+// // so avoid it if you depend on that.
+// //
+// // We do not change the state of any children
+// // in our tree.
+// func (c *IdemCloseChan) Reinit() {
+// 	c.mut.Lock()
+// 	defer c.mut.Unlock()
+// 	c.Chan = make(chan struct{})
+// 	c.closed = false
+// }
 
 // NewIdemCloseChan makes a new IdemCloseChan.
 func NewIdemCloseChan() *IdemCloseChan {
@@ -64,6 +71,49 @@ func (c *IdemCloseChan) Close() error {
 		return nil
 	}
 	return ErrAlreadyClosed
+}
+
+// CloseWithReason is a no-op if c is already closed.
+// Otherwise, we record the why and close c.
+// Use Reason() to get the why back. Like
+// Close(), we recursive call CloseWithReason()
+// on any children. Naturally decendents
+// will only set why if they were still open
+// when the recursive CloseWithReason gets to them,
+// and if any child is already closed the
+// recursion stops.
+func (c *IdemCloseChan) CloseWithReason(why *string) error {
+	c.mut.Lock()
+	defer c.mut.Unlock()
+	if !c.closed {
+		c.whyClosed = why
+		close(c.Chan)
+		c.closed = true
+		for _, child := range c.children {
+			child.CloseWithReason(why)
+		}
+		return nil
+	}
+	return ErrAlreadyClosed
+}
+
+// Reason gets the why set with CloseWithReason().
+// It also returns the closed state of c.
+// If c is still open, why will be nil,
+// as why is only set during the initial CloseWithReason
+// if c was still open.
+// The returned why will also be nil
+// if c was closed without a reason, by Close()
+// for example.
+//
+// Callers should be prepared to handle a nil why
+// no matter what the state of isClosed.
+func (c *IdemCloseChan) Reason() (why *string, isClosed bool) {
+	c.mut.Lock()
+	defer c.mut.Unlock()
+	why = c.whyClosed
+	isClosed = c.closed
+	return
 }
 
 // IsClosed tells you if Chan is already closed or not.
@@ -122,9 +172,13 @@ func (h *Halter) IsDone() bool {
 }
 
 // AddChild adds a child IdemCloseChan that will
-// be closed when its parent is Close()-ed.
+// be closed when its parent is Close()-ed. If
+// c is already closed, we close child immediately.
 func (c *IdemCloseChan) AddChild(child *IdemCloseChan) {
 	c.mut.Lock()
+	if c.closed {
+		child.Close()
+	}
 	c.children = append(c.children, child)
 	c.mut.Unlock()
 }
