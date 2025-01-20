@@ -15,7 +15,7 @@ type IdemCloseChan struct {
 	mut    sync.Mutex
 
 	children  []*IdemCloseChan
-	whyClosed *string // CloseWithReason() sets this.
+	WhyClosed error // CloseWithReason() sets this.
 }
 
 // Delete this as it makes it hard to reason
@@ -82,11 +82,11 @@ func (c *IdemCloseChan) Close() error {
 // when the recursive CloseWithReason gets to them,
 // and if any child is already closed the
 // recursion stops.
-func (c *IdemCloseChan) CloseWithReason(why *string) error {
+func (c *IdemCloseChan) CloseWithReason(why error) error {
 	c.mut.Lock()
 	defer c.mut.Unlock()
 	if !c.closed {
-		c.whyClosed = why
+		c.WhyClosed = why
 		close(c.Chan)
 		c.closed = true
 		for _, child := range c.children {
@@ -108,10 +108,10 @@ func (c *IdemCloseChan) CloseWithReason(why *string) error {
 //
 // Callers should be prepared to handle a nil why
 // no matter what the state of isClosed.
-func (c *IdemCloseChan) Reason() (why *string, isClosed bool) {
+func (c *IdemCloseChan) Reason() (why error, isClosed bool) {
 	c.mut.Lock()
 	defer c.mut.Unlock()
-	why = c.whyClosed
+	why = c.WhyClosed
 	isClosed = c.closed
 	return
 }
@@ -177,7 +177,7 @@ func (h *Halter) IsDone() bool {
 func (c *IdemCloseChan) AddChild(child *IdemCloseChan) {
 	c.mut.Lock()
 	if c.closed {
-		child.CloseWithReason(c.whyClosed)
+		child.CloseWithReason(c.WhyClosed)
 	}
 	c.children = append(c.children, child)
 	c.mut.Unlock()
@@ -234,7 +234,7 @@ func (h *Halter) RemoveChild(child *Halter) {
 // Done.Chan. It may return much more quickly
 // than atMost, but will never wait longer.
 // An atMost duration <= 0 will wait indefinitely.
-func (h *Halter) StopTreeAndWaitTilDone(atMost time.Duration, why *string) {
+func (h *Halter) StopTreeAndWaitTilDone(atMost time.Duration, why error) {
 
 	// since ReqStop keeps a parallel tree, we only
 	// need do this on the top level;
