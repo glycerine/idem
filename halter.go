@@ -14,8 +14,11 @@ type IdemCloseChan struct {
 	closed bool
 	mut    sync.Mutex
 
-	children  []*IdemCloseChan
-	WhyClosed error // CloseWithReason() sets this.
+	children []*IdemCloseChan
+
+	// not exported b/c it would lead to data races.
+	// Use Reason() to safely extract.
+	whyClosed error // CloseWithReason() sets this.
 }
 
 // Delete this as it makes it hard to reason
@@ -86,7 +89,7 @@ func (c *IdemCloseChan) CloseWithReason(why error) error {
 	c.mut.Lock()
 	defer c.mut.Unlock()
 	if !c.closed {
-		c.WhyClosed = why
+		c.whyClosed = why
 		close(c.Chan)
 		c.closed = true
 		for _, child := range c.children {
@@ -111,7 +114,7 @@ func (c *IdemCloseChan) CloseWithReason(why error) error {
 func (c *IdemCloseChan) Reason() (why error, isClosed bool) {
 	c.mut.Lock()
 	defer c.mut.Unlock()
-	why = c.WhyClosed
+	why = c.whyClosed
 	isClosed = c.closed
 	return
 }
@@ -177,7 +180,7 @@ func (h *Halter) IsDone() bool {
 func (c *IdemCloseChan) AddChild(child *IdemCloseChan) {
 	c.mut.Lock()
 	if c.closed {
-		child.CloseWithReason(c.WhyClosed)
+		child.CloseWithReason(c.whyClosed)
 	}
 	c.children = append(c.children, child)
 	c.mut.Unlock()
