@@ -351,6 +351,25 @@ func (c *IdemCloseChan) WaitTilDone(giveup <-chan struct{}) (err error) {
 	}
 }
 
+// WaitTilChildrenDone is just like WaitTilDone, but
+// does not require (or check) if we ourselves, the root
+// of our tree, is closed.
+func (c *IdemCloseChan) WaitTilChildrenDone(giveup <-chan struct{}) (err error) {
+	c.mut.Lock()
+	defer c.mut.Unlock()
+
+	for _, child := range c.children {
+		child.WaitTilDone(giveup)
+	}
+	for _, child := range c.children {
+		err = child.FirstTreeReason()
+		if err != nil {
+			return err
+		}
+	}
+	return
+}
+
 // FirstTreeReason scans the whole tree root at c
 // for the first non-nil close reason, and returns it.
 // If the tree is not completely closed at any node,

@@ -368,4 +368,44 @@ func Test104WaitTilDone(t *testing.T) {
 		cv.So(anyErr, cv.ShouldEqual, r3)
 	})
 
+	cv.Convey("WaitTilChildrenDone does not root(ourselves) to be closed, but returns when all descendents have closed.", t, func() {
+		root := NewHalter()
+		child := NewHalter()
+		child2 := NewHalter()
+		grandchild := NewHalter()
+		greatgrandchild1 := NewHalter()
+		greatgrandchild2 := NewHalter()
+
+		root.AddChild(child)
+		root.AddChild(child2)
+		child2.AddChild(grandchild)
+		grandchild.AddChild(greatgrandchild1)
+		grandchild.AddChild(greatgrandchild2)
+
+		r3 := fmt.Errorf("reason3")
+
+		seen := make(map[*Halter]bool)
+		var seq []*Halter
+		root.visit(func(y *Halter) {
+			if y == greatgrandchild2 {
+				y.ReqStop.CloseWithReason(r3)
+			}
+		})
+
+		// close all BUT root
+		root.visit(func(y *Halter) {
+			if y == root {
+				// skip!
+			} else {
+				y.ReqStop.Close()
+			}
+			seen[y] = true
+			seq = append(seq, y)
+		})
+
+		err := root.ReqStop.WaitTilChildrenDone(nil)
+		cv.So(err, cv.ShouldEqual, r3)
+		cv.So(root.ReqStop.IsClosed(), cv.ShouldEqual, false)
+	})
+
 }
