@@ -21,6 +21,15 @@ type IdemCloseChan struct {
 	whyClosed error // CloseWithReason() sets this.
 }
 
+// ErrGiveUp is returned by IdemCloseChan.WaitTilDone
+// if the giveup channel close was the reason that
+// WaitTilDone returned.
+var ErrGiveUp = fmt.Errorf("giveup channel was closed.")
+
+// ErrNotClosed is returned by FirstTreeReason if
+// it is called on a tree that is not completely closed.
+var ErrNotClosed = fmt.Errorf("tree is not closed")
+
 // Delete this as it makes it hard to reason
 // about the state of the tree.
 //
@@ -342,4 +351,27 @@ func (c *IdemCloseChan) WaitTilDone(giveup <-chan struct{}) (err error) {
 	}
 }
 
-var ErrGiveUp = fmt.Errorf("giveup channel was closed.")
+// FirstTreeReason scans the whole tree root at c
+// for the first non-nil close reason, and returns it.
+// If the tree is not completely closed at any node,
+// it returns ErrNotClosed.
+func (c *IdemCloseChan) FirstTreeReason() (err error) {
+
+	why, isClosed := c.Reason()
+	if !isClosed {
+		return ErrNotClosed
+	}
+	if why != nil {
+		return why
+	}
+
+	c.mut.Lock()
+	defer c.mut.Unlock()
+	for _, child := range c.children {
+		err = child.FirstTreeReason()
+		if err != nil {
+			return err
+		}
+	}
+	return
+}

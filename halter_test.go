@@ -363,6 +363,9 @@ func Test104WaitTilDone(t *testing.T) {
 		cv.So(err, cv.ShouldEqual, nil)
 		err3 := greatgrandchild2.ReqStop.WaitTilDone(nil)
 		cv.So(err3, cv.ShouldEqual, r3)
+
+		anyErr := root.ReqStop.FirstTreeReason()
+		cv.So(anyErr, cv.ShouldEqual, r3)
 	})
 
 }
