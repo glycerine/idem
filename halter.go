@@ -283,3 +283,40 @@ func (h *Halter) visit(f func(y *Halter)) {
 		child.visit(f)
 	}
 }
+
+// WaitTilDone does not return until either
+// a) we and all our children have closed the Done
+// channel; or b) the supplied giveup channel
+// has been closed.
+//
+// We recursively call WaitTilDone on all of
+// our children, and then wait for our own Done close.
+//
+// Note we cannot use a time.After channel for giveup,
+// since that only fires once--we have possibly
+// many children to wait for.
+// Hence giveup must be _closed_, not just sent on,
+// to have them all stop waiting.
+//
+// There is no protection against racey mutation
+// of our child tree once this operation has started.
+// The user must guarantee that nobody will
+// do AddChild or RemoveChild while we are
+// waiting.
+func (c *IdemCloseChan) WaitTilDone(giveup <-chan struct{}) {
+	c.mut.Lock()
+	c.mut.Unlock()
+	if c.closed {
+		c.mut.Unlock()
+		return
+	}
+	// INVAR: we were open, and c.mut is now not held,
+	// so we can be closed.
+	for _, child := range c.children {
+		child.WaitTilDone(giveup)
+	}
+	select {
+	case <-c.Chan:
+	case <-giveup:
+	}
+}
