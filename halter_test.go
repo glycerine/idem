@@ -407,5 +407,62 @@ func Test104WaitTilDone(t *testing.T) {
 		cv.So(err, cv.ShouldEqual, r3)
 		cv.So(root.ReqStop.IsClosed(), cv.ShouldEqual, false)
 	})
+}
+
+func Test105WaitTilChildrenDone(t *testing.T) {
+
+	cv.Convey("WaitTilChildrenDone does not return until the sub-tree has all closed. ", t, func() {
+		root := NewHalter()
+		child := NewHalter()
+		child2 := NewHalter()
+		grandchild := NewHalter()
+		greatgrandchild1 := NewHalter()
+		greatgrandchild2 := NewHalter()
+
+		root.AddChild(child)
+		root.AddChild(child2)
+		child2.AddChild(grandchild)
+		grandchild.AddChild(greatgrandchild1)
+		grandchild.AddChild(greatgrandchild2)
+
+		// we close in this order. So it must be bottom up.
+		bairn := []*IdemCloseChan{
+			greatgrandchild1.ReqStop,
+			greatgrandchild2.ReqStop,
+			grandchild.ReqStop,
+			child.ReqStop,
+			child2.ReqStop,
+		}
+
+		for i := range bairn {
+			//vv("i = %v", i)
+			if i > 0 {
+				bairn[i-1].Close()
+			}
+			giveup := make(chan struct{})
+			back := make(chan struct{})
+
+			go func() {
+				root.ReqStop.WaitTilChildrenDone(giveup)
+				close(back)
+			}()
+			select {
+			case <-time.After(100 * time.Millisecond):
+				// good, no close
+			case <-back:
+				panic("root.ReqStop.WaitTilChildrenDone returned too early")
+			}
+			close(giveup)
+			<-back
+			//vv("good: root.ReqStop.WaitTilChildrenDone gave up waiting")
+		}
+
+		// close the last
+		r3 := fmt.Errorf("reason3")
+		bairn[len(bairn)-1].CloseWithReason(r3)
+		err := root.ReqStop.WaitTilChildrenDone(nil)
+		cv.So(err, cv.ShouldEqual, r3)
+		cv.So(root.ReqStop.IsClosed(), cv.ShouldEqual, false)
+	})
 
 }
