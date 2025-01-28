@@ -303,20 +303,43 @@ func (h *Halter) visit(f func(y *Halter)) {
 // The user must guarantee that nobody will
 // do AddChild or RemoveChild while we are
 // waiting.
-func (c *IdemCloseChan) WaitTilDone(giveup <-chan struct{}) {
+//
+// If the giveup channel was closed, the returned
+// error will be ErrGiveUp. Otherwise it will
+// be the first Reason() supplied by any
+// CloseWithReason() calls in the tree. The
+// first non-nil 'why' error we encounter
+// is sticky. If err is returned nil, you
+// know that either CloseWithReason was
+// not used, or that there were only nil
+// reason closes.
+func (c *IdemCloseChan) WaitTilDone(giveup <-chan struct{}) (err error) {
 	c.mut.Lock()
 	c.mut.Unlock()
 	if c.closed {
 		c.mut.Unlock()
+		err, _ = c.Reason()
 		return
 	}
 	// INVAR: we were open, and c.mut is now not held,
 	// so we can be closed.
 	for _, child := range c.children {
-		child.WaitTilDone(giveup)
+		err1 := child.WaitTilDone(giveup)
+		// first error is sticky
+		if err == nil {
+			err = err1
+		}
 	}
 	select {
 	case <-c.Chan:
+		if err != nil {
+			return
+		}
+		err, _ = c.Reason()
+		return
 	case <-giveup:
+		return ErrGiveUp
 	}
 }
+
+var ErrGiveUp = fmt.Errorf("giveup channel was closed.")
