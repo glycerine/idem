@@ -315,12 +315,12 @@ func (h *Halter) visit(f func(y *Halter)) {
 // reason closes.
 func (c *IdemCloseChan) WaitTilDone(giveup <-chan struct{}) (err error) {
 	c.mut.Lock()
-	c.mut.Unlock()
 	if c.closed {
 		c.mut.Unlock()
 		err, _ = c.Reason()
 		return
 	}
+	c.mut.Unlock()
 	// INVAR: we were open, and c.mut is now not held,
 	// so we can be closed.
 	for _, child := range c.children {
