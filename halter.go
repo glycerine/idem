@@ -325,14 +325,16 @@ func (h *Halter) visit(f func(y *Halter)) {
 func (c *IdemCloseChan) WaitTilDone(giveup <-chan struct{}) (err error) {
 	c.mut.Lock()
 	if c.closed {
+		err = c.whyClosed
 		c.mut.Unlock()
-		err, _ = c.Reason()
 		return
 	}
+	// avoid data races if our advice above is ignored.
+	bairn := append([]*IdemCloseChan{}, c.children...)
 	c.mut.Unlock()
 	// INVAR: we were open, and c.mut is now not held,
 	// so we can be closed.
-	for _, child := range c.children {
+	for _, child := range bairn {
 		err1 := child.WaitTilDone(giveup)
 		// first error is sticky
 		if err == nil {
@@ -341,6 +343,7 @@ func (c *IdemCloseChan) WaitTilDone(giveup <-chan struct{}) (err error) {
 	}
 	select {
 	case <-c.Chan:
+		// first error is still sticky, don't overwrite with c.Reason().
 		if err != nil {
 			return
 		}
