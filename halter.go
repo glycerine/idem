@@ -424,10 +424,11 @@ func (c *IdemCloseChan) FirstTreeReason() (err error) {
 // with other channels; use the giveup channel
 // in TaskWait, or just integreate c.Chan
 // into your own select loop.
-func (c *IdemCloseChan) TaskAdd(delta int) {
+func (c *IdemCloseChan) TaskAdd(delta int) (newval int) {
 	c.mut.Lock()
 	defer c.mut.Unlock()
 	c.taskCount += delta
+	newval = c.taskCount
 	if c.taskCount <= 0 {
 		//vv("taskCount is now %v, closing ourselves/all children.", c.taskCount)
 		// inlined CloseWithReason, since we hold the mut.
@@ -442,6 +443,7 @@ func (c *IdemCloseChan) TaskAdd(delta int) {
 	} else {
 		//vv("taskCount is now %v", c.taskCount)
 	}
+	return
 }
 
 // TaskWait waits to return until either c or giveup
@@ -464,6 +466,6 @@ func (c *IdemCloseChan) TaskWait(giveup <-chan struct{}) (err error) {
 }
 
 // TaskDone subtracts one from the task count.
-func (c *IdemCloseChan) TaskDone() {
-	c.TaskAdd(-1)
+func (c *IdemCloseChan) TaskDone() int {
+	return c.TaskAdd(-1)
 }
