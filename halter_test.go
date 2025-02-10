@@ -2,6 +2,7 @@ package idem
 
 import (
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -359,9 +360,9 @@ func Test104WaitTilDone(t *testing.T) {
 		// INVAR: no duplicates in seq, because can be none in seen,
 		// and they are the same length.
 
-		err := root.ReqStop.WaitTilDone(nil)
+		err := root.ReqStop.WaitTilClosed(nil)
 		cv.So(err, cv.ShouldEqual, nil)
-		err3 := greatgrandchild2.ReqStop.WaitTilDone(nil)
+		err3 := greatgrandchild2.ReqStop.WaitTilClosed(nil)
 		cv.So(err3, cv.ShouldEqual, r3)
 
 		anyErr := root.ReqStop.FirstTreeReason()
@@ -403,7 +404,7 @@ func Test104WaitTilDone(t *testing.T) {
 			seq = append(seq, y)
 		})
 
-		err := root.ReqStop.WaitTilChildrenDone(nil)
+		err := root.ReqStop.WaitTilChildrenClosed(nil)
 		cv.So(err, cv.ShouldEqual, r3)
 		cv.So(root.ReqStop.IsClosed(), cv.ShouldEqual, false)
 	})
@@ -443,7 +444,7 @@ func Test105WaitTilChildrenDone(t *testing.T) {
 			back := make(chan struct{})
 
 			go func() {
-				root.ReqStop.WaitTilChildrenDone(giveup)
+				root.ReqStop.WaitTilChildrenClosed(giveup)
 				close(back)
 			}()
 			select {
@@ -460,9 +461,65 @@ func Test105WaitTilChildrenDone(t *testing.T) {
 		// close the last
 		r3 := fmt.Errorf("reason3")
 		bairn[len(bairn)-1].CloseWithReason(r3)
-		err := root.ReqStop.WaitTilChildrenDone(nil)
+		err := root.ReqStop.WaitTilChildrenClosed(nil)
 		cv.So(err, cv.ShouldEqual, r3)
 		cv.So(root.ReqStop.IsClosed(), cv.ShouldEqual, false)
 	})
 
+}
+
+func Test106TaskWait(t *testing.T) {
+
+	cv.Convey("TaskAdd, TaskDone, TaskWait are like a sync.WaitGroup that plays well with channels", t, func() {
+
+		pool := NewHalter()
+
+		// close down the whole pool iff
+		// (all tasks are done or there is an error).
+		workpool := 8 // extra workers we also want to see shutdown.
+		nTask := 4
+
+		var live atomic.Int64
+		live.Add(int64(workpool))
+
+		workCh := make(chan int)
+		pool.ReqStop.TaskAdd(nTask)
+
+		for worker := range workpool {
+			h := NewHalter()
+			pool.AddChild(h)
+			go func(worker int, h *Halter) {
+				defer func() {
+					live.Add(-1)
+					fmt.Printf("worker %v has finished.\n", worker)
+					h.ReqStop.Close()
+					h.Done.Close()
+				}()
+				for {
+					select {
+					case task := <-workCh:
+						fmt.Printf("worker %v did task %v\n", worker, task)
+						pool.ReqStop.TaskDone() // NOT h.TaskDone !
+					case <-h.ReqStop.Chan:
+						fmt.Printf("worker %v sees ReqStop closed\n", worker)
+						return
+					}
+				}
+			}(worker, h)
+		}
+		for i := range nTask {
+			workCh <- i
+		}
+		vv("issued all %v tasks, now wait for them to finish", nTask)
+		pool.ReqStop.TaskWait(nil)
+		vv("pool.TaskWait has returned. Now shutdown the pool")
+		//pool.ReqStop.Close()
+		//pool.ReqStop.WaitTilChildrenClosed(nil)
+		pool.StopTreeAndWaitTilDone(0, nil)
+		vv("The pool has shutdown.")
+		left := live.Load()
+		if left != 0 {
+			t.Fatalf("expected no workers left, got %v", left)
+		}
+	})
 }

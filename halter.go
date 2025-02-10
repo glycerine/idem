@@ -19,6 +19,8 @@ type IdemCloseChan struct {
 	// not exported b/c it would lead to data races.
 	// Use Reason() to safely extract.
 	whyClosed error // CloseWithReason() sets this.
+
+	taskCount int
 }
 
 // ErrGiveUp is returned by IdemCloseChan.WaitTilDone
@@ -29,6 +31,8 @@ var ErrGiveUp = fmt.Errorf("giveup channel was closed.")
 // ErrNotClosed is returned by FirstTreeReason if
 // it is called on a tree that is not completely closed.
 var ErrNotClosed = fmt.Errorf("tree is not closed")
+
+var ErrTasksAllDone = fmt.Errorf("tasks all done")
 
 // Delete this as it makes it hard to reason
 // about the state of the tree.
@@ -192,6 +196,7 @@ func (c *IdemCloseChan) AddChild(child *IdemCloseChan) {
 		child.CloseWithReason(c.whyClosed)
 	}
 	c.children = append(c.children, child)
+	//vv("IdemCloseChan.AddChild() now has %v children", len(c.children))
 	c.mut.Unlock()
 }
 
@@ -254,6 +259,10 @@ func (h *Halter) StopTreeAndWaitTilDone(atMost time.Duration, why error) {
 	// closed tree level.
 	h.ReqStop.CloseWithReason(why)
 
+	// We have to close our own Done channel.
+	// Otherwise, waitTilDoneOrAtMost will block, waiting for it.
+	h.Done.CloseWithReason(why)
+
 	h.waitTilDoneOrAtMost(atMost)
 }
 
@@ -293,13 +302,13 @@ func (h *Halter) visit(f func(y *Halter)) {
 	}
 }
 
-// WaitTilDone does not return until either
-// a) we and all our children have closed the Done
-// channel; or b) the supplied giveup channel
+// WaitTilClosed does not return until either
+// a) we and all our children have closed our
+// channels; or b) the supplied giveup channel
 // has been closed.
 //
-// We recursively call WaitTilDone on all of
-// our children, and then wait for our own Done close.
+// We recursively call WaitTilClosed on all of
+// our children, and then wait for our own close.
 //
 // Note we cannot use a time.After channel for giveup,
 // since that only fires once--we have possibly
@@ -322,7 +331,7 @@ func (h *Halter) visit(f func(y *Halter)) {
 // know that either CloseWithReason was
 // not used, or that there were only nil
 // reason closes.
-func (c *IdemCloseChan) WaitTilDone(giveup <-chan struct{}) (err error) {
+func (c *IdemCloseChan) WaitTilClosed(giveup <-chan struct{}) (err error) {
 	c.mut.Lock()
 	if c.closed {
 		err = c.whyClosed
@@ -335,7 +344,7 @@ func (c *IdemCloseChan) WaitTilDone(giveup <-chan struct{}) (err error) {
 	// INVAR: we were open, and c.mut is now not held,
 	// so we can be closed.
 	for _, child := range bairn {
-		err1 := child.WaitTilDone(giveup)
+		err1 := child.WaitTilClosed(giveup)
 		// first error is sticky
 		if err == nil {
 			err = err1
@@ -354,15 +363,15 @@ func (c *IdemCloseChan) WaitTilDone(giveup <-chan struct{}) (err error) {
 	}
 }
 
-// WaitTilChildrenDone is just like WaitTilDone, but
+// WaitTilChildrenClosed is just like WaitTilClosed, but
 // does not require (or check) if we ourselves, the root
 // of our tree, is closed.
-func (c *IdemCloseChan) WaitTilChildrenDone(giveup <-chan struct{}) (err error) {
+func (c *IdemCloseChan) WaitTilChildrenClosed(giveup <-chan struct{}) (err error) {
 	c.mut.Lock()
 	defer c.mut.Unlock()
 
 	for _, child := range c.children {
-		child.WaitTilDone(giveup)
+		child.WaitTilClosed(giveup)
 	}
 	for _, child := range c.children {
 		err = child.FirstTreeReason()
@@ -396,4 +405,54 @@ func (c *IdemCloseChan) FirstTreeReason() (err error) {
 		}
 	}
 	return
+}
+
+// TaskAdd adds delta to the taskCount. When
+// the taskCount reaches zero (or below),
+// this channel will be closed.
+//
+// TaskAdd, TaskDone, TaskWait are like
+// sync.WaitGroup but with sane integration
+// with other channels; use the giveup channel
+// in TaskWait, or just integreate c.Chan
+// into your own select loop.
+func (c *IdemCloseChan) TaskAdd(delta int) {
+	c.mut.Lock()
+	defer c.mut.Unlock()
+	c.taskCount += delta
+	if c.taskCount <= 0 {
+		//vv("taskCount is now %v, closing ourselves/all children.", c.taskCount)
+		// inlined CloseWithReason, since we hold the mut.
+		if !c.closed {
+			c.whyClosed = ErrTasksAllDone
+			close(c.Chan)
+			c.closed = true
+			for _, child := range c.children {
+				child.CloseWithReason(c.whyClosed)
+			}
+		}
+	} else {
+		//vv("taskCount is now %v", c.taskCount)
+	}
+}
+
+// TaskWait waits to return until either c or giveup
+// is closed, whever happens first.
+//
+// TaskAdd, TaskDone, TaskWait are like
+// sync.WaitGroup but with sane integration
+// with other channels.
+//
+// You can readily integrate c.Chan into your
+// own select statement.
+func (c *IdemCloseChan) TaskWait(giveup <-chan struct{}) {
+	select {
+	case <-giveup:
+	case <-c.Chan:
+	}
+}
+
+// TaskDone subtracts one from the task count.
+func (c *IdemCloseChan) TaskDone() {
+	c.TaskAdd(-1)
 }
