@@ -252,7 +252,7 @@ func (h *Halter) RemoveChild(child *Halter) {
 // Done.Chan. It may return much more quickly
 // than atMost, but will never wait longer.
 // An atMost duration <= 0 will wait indefinitely.
-func (h *Halter) StopTreeAndWaitTilDone(atMost time.Duration, why error) {
+func (h *Halter) StopTreeAndWaitTilDone(atMost time.Duration, giveup <-chan struct{}, why error) {
 
 	// since ReqStop keeps a parallel tree, we only
 	// need do this on the top level;
@@ -260,28 +260,33 @@ func (h *Halter) StopTreeAndWaitTilDone(atMost time.Duration, why error) {
 	// closed tree level.
 	h.ReqStop.CloseWithReason(why)
 
-	// We have to close our own Done channel.
-	// Otherwise, waitTilDoneOrAtMost will block, waiting for it.
-	h.Done.CloseWithReason(why)
+	// We used to have to close our own Done channel.
+	// Otherwise, waitTilDoneOrAtMost would block, waiting for it.
+	// But/update: we added a flag to visit to allow skipping the
+	// root. That way we can wait to close our own Done
+	// until the very end, allowing a user to recursively
+	// wait on a halter tree.
+	h.waitTilDoneOrAtMost(atMost, giveup, false)
 
-	h.waitTilDoneOrAtMost(atMost)
+	h.Done.CloseWithReason(why)
 }
 
 // WaitTilDoneOrAtMost waits to return until
 // all descendents have closed their Done.Chan or atMost
 // time has elapsed. If atMost is <= 0, then we
 // wait indefinitely for all the Done.Chan.
-func (h *Halter) waitTilDoneOrAtMost(atMost time.Duration) {
+func (h *Halter) waitTilDoneOrAtMost(atMost time.Duration, giveup <-chan struct{}, visitSelf bool) {
 
 	// a nil timeout channel will never fire in a select.
 	var to <-chan time.Time
 	if atMost > 0 {
 		to = time.After(atMost)
 	}
-	h.visit(func(y *Halter) {
+	h.visit(visitSelf, func(y *Halter) {
 		select {
 		case <-y.Done.Chan:
 		case <-to:
+		case <-giveup:
 		}
 	})
 }
@@ -292,14 +297,16 @@ func (h *Halter) waitTilDoneOrAtMost(atMost time.Duration) {
 // all descendants d of h. Children are
 // visited while holding their parent's
 // child mutex cmut, but the parent itself is not.
-func (h *Halter) visit(f func(y *Halter)) {
-	f(h)
+func (h *Halter) visit(visitSelf bool, f func(y *Halter)) {
+	if visitSelf {
+		f(h)
+	}
 
 	h.cmut.Lock()
 	defer h.cmut.Unlock()
 
 	for _, child := range h.children {
-		child.visit(f)
+		child.visit(true, f)
 	}
 }
 

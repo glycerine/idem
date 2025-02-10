@@ -172,7 +172,7 @@ func Test103ChildClose(t *testing.T) {
 
 		seen := make(map[*Halter]bool)
 		var seq []*Halter
-		root.visit(func(y *Halter) {
+		root.visit(true, func(y *Halter) {
 			y.ReqStop.Close()
 			seen[y] = true
 			seq = append(seq, y)
@@ -304,7 +304,7 @@ func Test104WaitTilDone(t *testing.T) {
 
 		seen := make(map[*Halter]bool)
 		var seq []*Halter
-		root.visit(func(y *Halter) {
+		root.visit(true, func(y *Halter) {
 			y.ReqStop.CloseWithReason(r2)
 			seen[y] = true
 			seq = append(seq, y)
@@ -344,12 +344,12 @@ func Test104WaitTilDone(t *testing.T) {
 
 		seen := make(map[*Halter]bool)
 		var seq []*Halter
-		root.visit(func(y *Halter) {
+		root.visit(true, func(y *Halter) {
 			if y == greatgrandchild2 {
 				y.ReqStop.CloseWithReason(r3)
 			}
 		})
-		root.visit(func(y *Halter) {
+		root.visit(true, func(y *Halter) {
 			y.ReqStop.Close()
 			seen[y] = true
 			seq = append(seq, y)
@@ -387,14 +387,14 @@ func Test104WaitTilDone(t *testing.T) {
 
 		seen := make(map[*Halter]bool)
 		var seq []*Halter
-		root.visit(func(y *Halter) {
+		root.visit(true, func(y *Halter) {
 			if y == greatgrandchild2 {
 				y.ReqStop.CloseWithReason(r3)
 			}
 		})
 
 		// close all BUT root
-		root.visit(func(y *Halter) {
+		root.visit(false, func(y *Halter) {
 			if y == root {
 				// skip!
 			} else {
@@ -515,7 +515,7 @@ func Test106TaskWait(t *testing.T) {
 		vv("pool.TaskWait has returned. Now shutdown the pool")
 		//pool.ReqStop.Close()
 		//pool.ReqStop.WaitTilChildrenClosed(nil)
-		pool.StopTreeAndWaitTilDone(0, nil)
+		pool.StopTreeAndWaitTilDone(0, nil, nil)
 		vv("The pool has shutdown.")
 		left := live.Load()
 		if left != 0 {
@@ -566,7 +566,7 @@ func Test106TaskWait(t *testing.T) {
 			workCh <- i
 		}
 		vv("issued all %v tasks, now wait for them to finish", nTask)
-		time.Sleep(time.Second)
+		time.Sleep(time.Millisecond)
 		simulatedError := make(chan struct{})
 		close(simulatedError)
 		err := pool.ReqStop.TaskWait(simulatedError)
@@ -576,7 +576,7 @@ func Test106TaskWait(t *testing.T) {
 		}
 		//pool.ReqStop.Close()
 		//pool.ReqStop.WaitTilChildrenClosed(nil)
-		pool.StopTreeAndWaitTilDone(0, nil)
+		pool.StopTreeAndWaitTilDone(0, nil, nil)
 		vv("The pool has shutdown.")
 		left := live.Load()
 		if left != 0 {
