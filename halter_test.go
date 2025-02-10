@@ -522,4 +522,66 @@ func Test106TaskWait(t *testing.T) {
 			t.Fatalf("expected no workers left, got %v", left)
 		}
 	})
+
+	cv.Convey("If we are interrupted with an error, all the worker pool still shuts down.", t, func() {
+
+		pool := NewHalter()
+
+		// close down the whole pool iff
+		// (all tasks are done or there is an error).
+		workpool := 8 // extra workers we also want to see shutdown.
+		nTask := 4
+
+		var live atomic.Int64
+		live.Add(int64(workpool))
+
+		workCh := make(chan int)
+		pool.ReqStop.TaskAdd(nTask)
+
+		for worker := range workpool {
+			h := NewHalter()
+			pool.AddChild(h)
+			go func(worker int, h *Halter) {
+				defer func() {
+					live.Add(-1)
+					fmt.Printf("worker %v has finished.\n", worker)
+					h.ReqStop.Close()
+					h.Done.Close()
+				}()
+				for {
+					select {
+					case task := <-workCh:
+						fmt.Printf("worker %v did task %v\n", worker, task)
+						pool.ReqStop.TaskDone() // NOT h.TaskDone !
+					case <-h.ReqStop.Chan:
+						fmt.Printf("worker %v sees ReqStop closed\n", worker)
+						return
+					}
+				}
+			}(worker, h)
+		}
+
+		// sim: one less than all, then an error happens.
+		for i := range nTask - 1 {
+			workCh <- i
+		}
+		vv("issued all %v tasks, now wait for them to finish", nTask)
+		time.Sleep(time.Second)
+		simulatedError := make(chan struct{})
+		close(simulatedError)
+		err := pool.ReqStop.TaskWait(simulatedError)
+		vv("pool.TaskWait has returned, err = '%v' Now shutdown the pool", err)
+		if err != ErrGiveUp {
+			t.Fatalf("expected ErrGiveUp, got: '%v'", err)
+		}
+		//pool.ReqStop.Close()
+		//pool.ReqStop.WaitTilChildrenClosed(nil)
+		pool.StopTreeAndWaitTilDone(0, nil)
+		vv("The pool has shutdown.")
+		left := live.Load()
+		if left != 0 {
+			t.Fatalf("expected no workers left, got %v", left)
+		}
+	})
+
 }

@@ -32,6 +32,7 @@ var ErrGiveUp = fmt.Errorf("giveup channel was closed.")
 // it is called on a tree that is not completely closed.
 var ErrNotClosed = fmt.Errorf("tree is not closed")
 
+// ErrTasksAllDone is the reason when the task count reached 0.
 var ErrTasksAllDone = fmt.Errorf("tasks all done")
 
 // Delete this as it makes it hard to reason
@@ -445,11 +446,14 @@ func (c *IdemCloseChan) TaskAdd(delta int) {
 //
 // You can readily integrate c.Chan into your
 // own select statement.
-func (c *IdemCloseChan) TaskWait(giveup <-chan struct{}) {
+func (c *IdemCloseChan) TaskWait(giveup <-chan struct{}) (err error) {
 	select {
 	case <-giveup:
+		return ErrGiveUp
 	case <-c.Chan:
+		err, _ = c.Reason()
 	}
+	return
 }
 
 // TaskDone subtracts one from the task count.
