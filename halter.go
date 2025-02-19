@@ -133,6 +133,15 @@ func (c *IdemCloseChan) Reason() (why error, isClosed bool) {
 	return
 }
 
+// Reason1 is the same as Reason but without the isClosed.
+// This is easier to use in logging.
+func (c *IdemCloseChan) Reason1() (why error) {
+	c.mut.Lock()
+	defer c.mut.Unlock()
+	why = c.whyClosed
+	return
+}
+
 // IsClosed tells you if Chan is already closed or not.
 func (c *IdemCloseChan) IsClosed() bool {
 	c.mut.Lock()
