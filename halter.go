@@ -166,11 +166,13 @@ type Halter struct {
 	children []*Halter
 }
 
-func NewHalter() *Halter {
-	return &Halter{
+func NewHalter() (h *Halter) {
+	h = &Halter{
 		Done:    NewIdemCloseChan(),
 		ReqStop: NewIdemCloseChan(),
 	}
+	//vv("NewHalter created h=%p at %v", h, stack())
+	return
 }
 
 // RequestStop closes the h.ReqStop channel
@@ -285,16 +287,24 @@ func (h *Halter) StopTreeAndWaitTilDone(atMost time.Duration, giveup <-chan stru
 // time has elapsed. If atMost is <= 0, then we
 // wait indefinitely for all the Done.Chan.
 func (h *Halter) waitTilDoneOrAtMost(atMost time.Duration, giveup <-chan struct{}, visitSelf bool) {
+	//defer vv("returning from waitTilDoneOrAtMost, h = %p", h)
 
 	// a nil timeout channel will never fire in a select.
 	var to <-chan time.Time
+	// but we need a idem closed channel to handle
+	// all possible reads of the timer by our children.
+	timerGone := NewIdemCloseChan()
 	if atMost > 0 {
 		to = time.After(atMost)
 	}
+	//vv("in waitTilDoneOrAtMost, atMost = %v, visitSelf=%v in h Halter=%p", atMost, visitSelf, h)
 	h.visit(visitSelf, func(y *Halter) {
+		//vv("timeout in waitTilDoneOrAtMost t=%p, atMost = %v, visitSelf=%v in h Halter=%p", to, atMost, visitSelf, h)
 		select {
 		case <-y.Done.Chan:
 		case <-to:
+			timerGone.Close() // since timers are only good once:
+		case <-timerGone.Chan:
 		case <-giveup:
 		}
 	})
