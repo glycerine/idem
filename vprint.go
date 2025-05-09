@@ -11,39 +11,14 @@ import (
 	"strconv"
 	"sync"
 	"time"
-
-	"4d63.com/tz"
 )
 
 // for tons of debug output
 var verbose bool = false
 var verboseVerbose bool = false
 
-var gtz *time.Location
-var chicago *time.Location
-var utcTz *time.Location
-var nyc *time.Location
-var londonTz *time.Location
-var frankfurt *time.Location
-
 func init() {
-
-	// do this is ~/.bashrc so we get the default.
-	os.Setenv("TZ", "America/chicago")
-
-	var err error
-	chicago, err = tz.LoadLocation("America/Chicago")
-	panicOn(err)
-	utcTz, err = tz.LoadLocation("UTC")
-	panicOn(err)
-	nyc, err = tz.LoadLocation("America/New_York")
-	panicOn(err)
-	frankfurt, err = tz.LoadLocation("Europe/Berlin")
-	panicOn(err)
-	londonTz, err = tz.LoadLocation("Europe/London")
-	panicOn(err)
-
-	gtz = chicago
+	os.Setenv("TZ", "UTC")
 }
 
 const rfc3339MsecTz0 = "2006-01-02T15:04:05.000Z07:00"
@@ -86,7 +61,7 @@ func tsPrintf(format string, a ...interface{}) {
 
 // get timestamp for logging purposes
 func ts() string {
-	return time.Now().In(chicago).Format("2006-01-02 15:04:05.999 -0700 MST")
+	return time.Now().Format("2006-01-02 15:04:05.999 -0700 MST")
 	//return time.Now().In(nyc).Format("2006-01-02 15:04:05.999 -0700 MST")
 }
 
