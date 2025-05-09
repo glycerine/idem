@@ -203,6 +203,9 @@ func (h *Halter) IsDone() bool {
 // be closed when its parent is Close()-ed. If
 // c is already closed, we close child immediately.
 func (c *IdemCloseChan) AddChild(child *IdemCloseChan) {
+	if child == c {
+		panic("cannot add ourselves as a child of ourselves; would deadlock")
+	}
 	c.mut.Lock()
 	if c.closed {
 		child.CloseWithReason(c.whyClosed)
@@ -233,6 +236,9 @@ func (c *IdemCloseChan) RemoveChild(child *IdemCloseChan) {
 // ClosedWithReason with the same reason
 // as h, if any is available.
 func (h *Halter) AddChild(child *Halter) {
+	if child == h {
+		panic("cannot add ourselves as a child of ourselves; would deadlock")
+	}
 	h.cmut.Lock()
 	h.children = append(h.children, child)
 	h.ReqStop.AddChild(child.ReqStop)
