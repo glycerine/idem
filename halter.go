@@ -6,13 +6,17 @@ import (
 	"time"
 )
 
-// to avoid locking/deadlock issues, processes
-// including this package get exactly one
-// process-global single channel-based lock for all Halter
-// and IdemCloseChan tree operations. The
-// lock is used by all packages using idem, so
-// there cannot be any lock ordering changes
-// between them, accidentally creating deadlocks.
+// To avoid deadlock issues, a process
+// including this package gets exactly one
+// process-global single mutex for idem.
+// This is used for all idem.Halter
+// and idem.IdemCloseChan operations. Because the same
+// lock is used by all packages in this process
+// that are utilizing idem, there cannot be
+// any lock ordering changes
+// between them, which would create deadlocks.
+// Since shutdown is not a performance
+// sensitive event, this approach is reasonable.
 var globalTreeLock sync.Mutex
 
 func lock() {
