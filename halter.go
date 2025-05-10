@@ -2,7 +2,7 @@ package idem
 
 import (
 	"fmt"
-	//"sync"
+	"sync"
 	"time"
 )
 
@@ -25,6 +25,7 @@ func (s *Halter) holderHalt() *Halter               { return s }
 type globalSingleLock struct {
 	// empty channel means unlocked.
 	lockCh chan canLock
+	mut    sync.Mutex
 }
 
 func init() {
@@ -37,6 +38,11 @@ func init() {
 // lock returns true if it got the lock,
 // false if it bailed beforehand.
 func lock(bail chan struct{}, me canLock) bool {
+	// does simpler also work?
+	globalTreeLock.mut.Lock()
+	return true
+
+	// works:
 	select {
 	case globalTreeLock.lockCh <- me:
 		return true
@@ -49,6 +55,10 @@ func lock(bail chan struct{}, me canLock) bool {
 // already unlocked (return nil).
 // Otherwise returns who held the lock.
 func unlock() (hadIt canLock) {
+	// does simpler also work?
+	globalTreeLock.mut.Unlock()
+	return
+	// works
 	select {
 	case hadIt = <-globalTreeLock.lockCh:
 	default:
