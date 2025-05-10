@@ -385,8 +385,9 @@ func Test104WaitTilDone(t *testing.T) {
 		// and they are the same length.
 
 		err := root.ReqStop.WaitTilClosed(nil)
-		if err != nil {
-			t.Fatalf("expeced nil err")
+		if err != r3 { // changed to r3 instead of nil, reasonable.
+			//vv("expected nil err, got %v", err)
+			t.Fatalf("expeced r3 , got %v", err)
 		}
 
 		err3 := greatgrandchild2.ReqStop.WaitTilClosed(nil)
@@ -438,7 +439,7 @@ func Test104WaitTilDone(t *testing.T) {
 
 		err := root.ReqStop.WaitTilChildrenClosed(nil)
 		if err != r3 {
-			//	panic("wanted err == r3") // only red test.
+			t.Fatalf("wanted %v, got %v", r3, err)
 		}
 		if root.ReqStop.IsClosed() {
 			panic("wante root.ReqStop still open")

@@ -444,40 +444,45 @@ func (h *Halter) visit(visitSelf bool, f func(y *Halter)) {
 // not used, or that there were only nil
 // reason closes.
 func (c *IdemCloseChan) WaitTilClosed(giveup <-chan struct{}) (err error) {
-	seenClosed := make(map[*IdemCloseChan]bool)
-	return c.helperWaitTilClosed(giveup, seenClosed, true)
+
+	err = c.helperWaitTilClosed(giveup, true)
+	if err != nil {
+		return
+	}
+	for _, child := range c.children {
+		err = child.FirstTreeReason()
+		if err != nil {
+			return err
+		}
+	}
+	return
 }
 
 // PRE: the lock is not held
-func (c *IdemCloseChan) helperWaitTilClosed(giveup <-chan struct{}, seenClosed map[*IdemCloseChan]bool, closeSelf bool) (err error) {
+func (c *IdemCloseChan) helperWaitTilClosed(giveup <-chan struct{}, closeSelf bool) (err error) {
 	why, isClosed := c.Reason()
 	if isClosed {
-		seenClosed[c] = true
 		err = why
 		return
 	}
 	for _, child := range c.children {
-		if !seenClosed[child] {
-			err1 := child.helperWaitTilClosed(giveup, seenClosed, true)
-			// first error is sticky
-			if err == nil {
-				err = err1
-			}
+		err1 := child.helperWaitTilClosed(giveup, true)
+		// first error is sticky
+		if err == nil {
+			err = err1
 		}
-	}
-	if err == nil {
-		err = c.FirstTreeReason()
 	}
 	if closeSelf {
 		// wait for our own close.
 		select {
 		case <-c.Chan:
-			seenClosed[c] = true
 			// first error is still sticky, don't overwrite with c.Reason().
 			if err != nil {
 				return
 			}
-			err, _ = c.Reason()
+			if err == nil {
+				err = c.FirstTreeReason()
+			}
 			return
 		case <-giveup:
 			return ErrGiveUp
@@ -491,15 +496,9 @@ func (c *IdemCloseChan) helperWaitTilClosed(giveup <-chan struct{}, seenClosed m
 // of our tree, is closed.
 func (c *IdemCloseChan) WaitTilChildrenClosed(giveup <-chan struct{}) (err error) {
 
-	seenClosed := make(map[*IdemCloseChan]bool)
-	return c.helperWaitTilClosed(giveup, seenClosed, false)
-}
-
-func (c *IdemCloseChan) nolockingWaitTilChildrenClosed(giveup <-chan struct{}) (err error) {
-
-	for _, child := range c.children {
-		child.WaitTilClosed(giveup)
-		//child.nolockingWaitTilClosed(giveup)
+	err = c.helperWaitTilClosed(giveup, false)
+	if err != nil {
+		return
 	}
 	for _, child := range c.children {
 		err = child.FirstTreeReason()
@@ -509,6 +508,21 @@ func (c *IdemCloseChan) nolockingWaitTilChildrenClosed(giveup <-chan struct{}) (
 	}
 	return
 }
+
+// func (c *IdemCloseChan) nolockingWaitTilChildrenClosed(giveup <-chan struct{}) (err error) {
+
+// 	for _, child := range c.children {
+// 		child.WaitTilClosed(giveup)
+// 		//child.nolockingWaitTilClosed(giveup)
+// 	}
+// 	for _, child := range c.children {
+// 		err = child.FirstTreeReason()
+// 		if err != nil {
+// 			return err
+// 		}
+// 	}
+// 	return
+// }
 
 // FirstTreeReason scans the whole tree root at c
 // for the first non-nil close reason, and returns it.
