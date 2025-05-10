@@ -9,62 +9,18 @@ import (
 // to avoid locking/deadlock issues, processes
 // including this package get exactly one
 // process-global single channel-based lock for all Halter
-// and IdemCloseChan tree operations.
-var globalTreeLock *globalSingleLock
+// and IdemCloseChan tree operations. The
+// lock is used by all packages using idem, so
+// there cannot be any lock ordering changes
+// between them, accidentally creating deadlocks.
+var globalTreeLock sync.Mutex
 
-type canLock interface {
-	holderChan() *IdemCloseChan
-	holderHalt() *Halter
+func lock() {
+	globalTreeLock.Lock()
 }
 
-func (s *IdemCloseChan) holderChan() *IdemCloseChan { return s }
-func (s *IdemCloseChan) holderHalt() *Halter        { return nil }
-func (s *Halter) holderChan() *IdemCloseChan        { return nil }
-func (s *Halter) holderHalt() *Halter               { return s }
-
-type globalSingleLock struct {
-	// empty channel means unlocked.
-	lockCh chan canLock
-	mut    sync.Mutex
-}
-
-func init() {
-	s := &globalSingleLock{
-		lockCh: make(chan canLock, 1),
-	}
-	globalTreeLock = s
-}
-
-// lock returns true if it got the lock,
-// false if it bailed beforehand.
-func lock(bail chan struct{}, me canLock) bool {
-	// does simpler also work?
-	globalTreeLock.mut.Lock()
-	return true
-
-	// works:
-	select {
-	case globalTreeLock.lockCh <- me:
-		return true
-	case <-bail:
-		return false
-	}
-}
-
-// unlock does not block if the lock is
-// already unlocked (return nil).
-// Otherwise returns who held the lock.
-func unlock() (hadIt canLock) {
-	// does simpler also work?
-	globalTreeLock.mut.Unlock()
-	return
-	// works
-	select {
-	case hadIt = <-globalTreeLock.lockCh:
-	default:
-		// already unlocked, return nil
-	}
-	return
+func unlock() {
+	globalTreeLock.Unlock()
 }
 
 // IdemCloseChan can have Close() called on it
@@ -118,20 +74,12 @@ var ErrAlreadyClosed = fmt.Errorf("Chan already closed")
 // the depth of the first already-closed node in the tree.
 func (c *IdemCloseChan) Close() error {
 	// was hung on lock here in Test106TaskWait, before chan based lock
-	lock(nil, c)
+	lock()
 	defer unlock()
 	return c.nolockingClose()
 }
 
 var ErrBailed = fmt.Errorf("bail chan closed before getting the lock")
-
-//func (c *IdemCloseChan) CloseOrBail(bail chan struct{}) (err error, bailed bool) {
-//	if !lock(bail) {
-//		return ErrBailed, true
-//	}
-//	defer unlock()
-//	return c.nolockingClose(), false
-//}
 
 func (c *IdemCloseChan) nolockingClose() error {
 	if !c.closed {
@@ -155,7 +103,7 @@ func (c *IdemCloseChan) nolockingClose() error {
 // and if any child is already closed the
 // recursion stops.
 func (c *IdemCloseChan) CloseWithReason(why error) error {
-	lock(nil, c)
+	lock()
 	defer unlock()
 	return c.nolockingCloseWithReason(why)
 }
@@ -185,7 +133,7 @@ func (c *IdemCloseChan) nolockingCloseWithReason(why error) error {
 // Callers should be prepared to handle a nil why
 // no matter what the state of isClosed.
 func (c *IdemCloseChan) Reason() (why error, isClosed bool) {
-	lock(nil, c)
+	lock()
 	defer unlock()
 	return c.nolockingReason()
 }
@@ -199,7 +147,7 @@ func (c *IdemCloseChan) nolockingReason() (why error, isClosed bool) {
 // Reason1 is the same as Reason but without the isClosed.
 // This is easier to use in logging.
 func (c *IdemCloseChan) Reason1() (why error) {
-	lock(nil, c)
+	lock()
 	defer unlock()
 	return c.nolockingReason1()
 }
@@ -211,7 +159,7 @@ func (c *IdemCloseChan) nolockingReason1() (why error) {
 
 // IsClosed tells you if Chan is already closed or not.
 func (c *IdemCloseChan) IsClosed() bool {
-	lock(nil, c)
+	lock()
 	defer unlock()
 	return c.closed
 }
@@ -275,7 +223,7 @@ func (c *IdemCloseChan) AddChild(child *IdemCloseChan) {
 	if child == c {
 		panic("cannot add ourselves as a child of ourselves; would deadlock")
 	}
-	lock(nil, c)
+	lock()
 	defer unlock()
 	c.nolockingAddChild(child)
 }
@@ -292,7 +240,7 @@ func (c *IdemCloseChan) nolockingAddChild(child *IdemCloseChan) {
 }
 
 func (c *IdemCloseChan) RemoveChild(child *IdemCloseChan) {
-	lock(nil, c)
+	lock()
 	defer unlock()
 	c.nolockingRemoveChild(child)
 }
@@ -317,7 +265,7 @@ func (h *Halter) AddChild(child *Halter) {
 	if child == h {
 		panic("cannot add ourselves as a child of ourselves; would deadlock")
 	}
-	lock(nil, h)
+	lock()
 	defer unlock()
 
 	h.children = append(h.children, child)
@@ -328,7 +276,7 @@ func (h *Halter) AddChild(child *Halter) {
 // of h.children. It does not undo any
 // close operation that AddChild did on addition.
 func (h *Halter) RemoveChild(child *Halter) {
-	lock(nil, h)
+	lock()
 	defer unlock()
 	h.nolockingRemoveChild(child)
 }
@@ -460,7 +408,7 @@ func (c *IdemCloseChan) helperWaitTilClosed(giveup <-chan struct{}, closeSelf bo
 	}
 	// a little bit of protection against simultaneous mutation
 	// since we don't/can't hold the lock during recursion.
-	lock(nil, c)
+	lock()
 	bairn := append([]*IdemCloseChan{}, c.children...)
 	unlock()
 
@@ -511,7 +459,7 @@ func (c *IdemCloseChan) WaitTilChildrenClosed(giveup <-chan struct{}) (err error
 // If the tree is not completely closed at any node,
 // it returns ErrNotClosed.
 func (c *IdemCloseChan) FirstTreeReason() (err error) {
-	lock(nil, c)
+	lock()
 	defer unlock()
 	return c.nolockingFirstTreeReason()
 }
@@ -545,7 +493,7 @@ func (c *IdemCloseChan) nolockingFirstTreeReason() (err error) {
 // in TaskWait, or just integreate c.Chan
 // into your own select loop.
 func (c *IdemCloseChan) TaskAdd(delta int) (newval int) {
-	lock(nil, c)
+	lock()
 	defer unlock()
 	return c.nolockingTaskAdd(delta)
 }
