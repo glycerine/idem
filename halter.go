@@ -2,7 +2,7 @@ package idem
 
 import (
 	"fmt"
-	"sync"
+	//"sync"
 	"time"
 )
 
@@ -10,7 +10,32 @@ import (
 // including this package get exactly one
 // process-global single mutex for all Halter
 // and IdemCloseChan tree operations.
-var globalTreeLock sync.Mutex
+var globalTreeLock *globalSingleLock
+
+type globalSingleLock struct {
+	availCh chan struct{}
+}
+
+func init() {
+	s := &globalSingleLock{
+		availCh: make(chan struct{}, 1),
+	}
+	s.availCh <- struct{}{}
+	globalTreeLock = s
+}
+
+func lock(bail chan struct{}) {
+	select {
+	case <-globalTreeLock.availCh:
+	case <-bail:
+	}
+}
+func unlock(bail chan struct{}) {
+	select {
+	case globalTreeLock.availCh <- struct{}{}:
+	case <-bail:
+	}
+}
 
 // IdemCloseChan can have Close() called on it
 // multiple times, and it will only close
@@ -82,8 +107,8 @@ var ErrAlreadyClosed = fmt.Errorf("Chan already closed")
 // channel is already closed, so the recursion stops at
 // the depth of the first already-closed node in the tree.
 func (c *IdemCloseChan) Close() error {
-	globalTreeLock.Lock()
-	defer globalTreeLock.Unlock()
+	lock(nil) // hung here Test106TaskWait
+	defer unlock(nil)
 	return c.unlockedClose()
 }
 func (c *IdemCloseChan) unlockedClose() error {
@@ -108,8 +133,8 @@ func (c *IdemCloseChan) unlockedClose() error {
 // and if any child is already closed the
 // recursion stops.
 func (c *IdemCloseChan) CloseWithReason(why error) error {
-	globalTreeLock.Lock()
-	defer globalTreeLock.Unlock()
+	lock(nil)
+	defer unlock(nil)
 	return c.unlockedCloseWithReason(why)
 }
 
@@ -138,8 +163,8 @@ func (c *IdemCloseChan) unlockedCloseWithReason(why error) error {
 // Callers should be prepared to handle a nil why
 // no matter what the state of isClosed.
 func (c *IdemCloseChan) Reason() (why error, isClosed bool) {
-	globalTreeLock.Lock()
-	defer globalTreeLock.Unlock()
+	lock(nil)
+	defer unlock(nil)
 	return c.unlockedReason()
 }
 
@@ -152,8 +177,8 @@ func (c *IdemCloseChan) unlockedReason() (why error, isClosed bool) {
 // Reason1 is the same as Reason but without the isClosed.
 // This is easier to use in logging.
 func (c *IdemCloseChan) Reason1() (why error) {
-	globalTreeLock.Lock()
-	defer globalTreeLock.Unlock()
+	lock(nil)
+	defer unlock(nil)
 	return c.unlockedReason1()
 }
 
@@ -164,8 +189,8 @@ func (c *IdemCloseChan) unlockedReason1() (why error) {
 
 // IsClosed tells you if Chan is already closed or not.
 func (c *IdemCloseChan) IsClosed() bool {
-	globalTreeLock.Lock()
-	defer globalTreeLock.Unlock()
+	lock(nil)
+	defer unlock(nil)
 	return c.closed
 }
 
@@ -228,8 +253,8 @@ func (c *IdemCloseChan) AddChild(child *IdemCloseChan) {
 	if child == c {
 		panic("cannot add ourselves as a child of ourselves; would deadlock")
 	}
-	globalTreeLock.Lock()
-	defer globalTreeLock.Unlock()
+	lock(nil)
+	defer unlock(nil)
 	c.unlockedAddChild(child)
 }
 
@@ -245,8 +270,8 @@ func (c *IdemCloseChan) unlockedAddChild(child *IdemCloseChan) {
 }
 
 func (c *IdemCloseChan) RemoveChild(child *IdemCloseChan) {
-	globalTreeLock.Lock()
-	defer globalTreeLock.Unlock()
+	lock(nil)
+	defer unlock(nil)
 	c.unlockedRemoveChild(child)
 }
 func (c *IdemCloseChan) unlockedRemoveChild(child *IdemCloseChan) {
@@ -270,8 +295,8 @@ func (h *Halter) AddChild(child *Halter) {
 	if child == h {
 		panic("cannot add ourselves as a child of ourselves; would deadlock")
 	}
-	globalTreeLock.Lock()
-	defer globalTreeLock.Unlock()
+	lock(nil)
+	defer unlock(nil)
 
 	h.children = append(h.children, child)
 	h.ReqStop.unlockedAddChild(child.ReqStop)
@@ -281,8 +306,8 @@ func (h *Halter) AddChild(child *Halter) {
 // of h.children. It does not undo any
 // close operation that AddChild did on addition.
 func (h *Halter) RemoveChild(child *Halter) {
-	globalTreeLock.Lock()
-	defer globalTreeLock.Unlock()
+	lock(nil)
+	defer unlock(nil)
 	h.unlockedRemoveChild(child)
 }
 func (h *Halter) unlockedRemoveChild(child *Halter) {
@@ -292,7 +317,7 @@ func (h *Halter) unlockedRemoveChild(child *Halter) {
 			return
 		}
 	}
-	h.ReqStop.unlockedRemoveChild(child.ReqStop)
+	h.ReqStop.unlockedRemoveChild(child.ReqStop) // write race vs :364 read in Test408_multiple_circuits_open_and_close
 }
 
 // StopTreeAndWaitTilDone first calls ReqStop.CloseWithReason(why)
@@ -305,7 +330,6 @@ func (h *Halter) unlockedRemoveChild(child *Halter) {
 // than atMost, but will never wait longer.
 // An atMost duration <= 0 will wait indefinitely.
 func (h *Halter) StopTreeAndWaitTilDone(atMost time.Duration, giveup <-chan struct{}, why error) {
-
 	// since ReqStop keeps a parallel tree, we only
 	// need do this on the top level;
 	// to efficiently stop traversal at first already
@@ -341,7 +365,7 @@ func (h *Halter) waitTilDoneOrAtMost(atMost time.Duration, giveup <-chan struct{
 	//vv("in waitTilDoneOrAtMost, atMost = %v, visitSelf=%v in h Halter=%p", atMost, visitSelf, h)
 	h.visit(visitSelf, func(y *Halter) {
 		//vv("timeout in waitTilDoneOrAtMost t=%p, atMost = %v, visitSelf=%v in h Halter=%p", to, atMost, visitSelf, h)
-		select {
+		select { // hung here Test106TaskWait
 		case <-y.Done.Chan:
 		case <-to:
 			timerGone.Close() // since timers are only good once:
@@ -397,8 +421,8 @@ func (h *Halter) visit(visitSelf bool, f func(y *Halter)) {
 // not used, or that there were only nil
 // reason closes.
 func (c *IdemCloseChan) WaitTilClosed(giveup <-chan struct{}) (err error) {
-	globalTreeLock.Lock()
-	defer globalTreeLock.Unlock()
+	lock(nil)
+	defer unlock(nil)
 	return c.unlockedWaitTilClosed(giveup)
 
 }
@@ -435,8 +459,8 @@ func (c *IdemCloseChan) unlockedWaitTilClosed(giveup <-chan struct{}) (err error
 // does not require (or check) if we ourselves, the root
 // of our tree, is closed.
 func (c *IdemCloseChan) WaitTilChildrenClosed(giveup <-chan struct{}) (err error) {
-	globalTreeLock.Lock()
-	defer globalTreeLock.Unlock()
+	lock(nil)
+	defer unlock(nil)
 	return c.unlockedWaitTilChildrenClosed(giveup)
 }
 func (c *IdemCloseChan) unlockedWaitTilChildrenClosed(giveup <-chan struct{}) (err error) {
@@ -458,8 +482,8 @@ func (c *IdemCloseChan) unlockedWaitTilChildrenClosed(giveup <-chan struct{}) (e
 // If the tree is not completely closed at any node,
 // it returns ErrNotClosed.
 func (c *IdemCloseChan) FirstTreeReason() (err error) {
-	globalTreeLock.Lock()
-	defer globalTreeLock.Unlock()
+	lock(nil)
+	defer unlock(nil)
 	return c.unlockedFirstTreeReason()
 }
 
@@ -492,8 +516,8 @@ func (c *IdemCloseChan) unlockedFirstTreeReason() (err error) {
 // in TaskWait, or just integreate c.Chan
 // into your own select loop.
 func (c *IdemCloseChan) TaskAdd(delta int) (newval int) {
-	globalTreeLock.Lock()
-	defer globalTreeLock.Unlock()
+	lock(nil)
+	defer unlock(nil)
 	return c.unlockedTaskAdd(delta)
 }
 func (c *IdemCloseChan) unlockedTaskAdd(delta int) (newval int) {

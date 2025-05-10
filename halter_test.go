@@ -533,7 +533,7 @@ func Test106TaskWait(t *testing.T) {
 				defer func() {
 					live.Add(-1)
 					fmt.Printf("worker %v has finished.\n", worker)
-					h.ReqStop.Close()
+					h.ReqStop.Close() // hung here Test106TaskWait
 					h.Done.Close()
 				}()
 				for {
