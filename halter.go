@@ -23,6 +23,7 @@ func (s *Halter) holderChan() *IdemCloseChan        { return nil }
 func (s *Halter) holderHalt() *Halter               { return s }
 
 type globalSingleLock struct {
+	// empty channel means unlocked.
 	lockCh chan canLock
 }
 
@@ -83,26 +84,6 @@ var ErrNotClosed = fmt.Errorf("tree is not closed")
 
 // ErrTasksAllDone is the reason when the task count reached 0.
 var ErrTasksAllDone = fmt.Errorf("tasks all done")
-
-// Delete this as it makes it hard to reason
-// about the state of the tree.
-//
-// // Reinit re-allocates the Chan, assinging
-// // a new channel and reseting the state
-// // as if brand new.
-// //
-// // This breaks the assumptions of the
-// // recursive child close that ReqStop makes,
-// // so avoid it if you depend on that.
-// //
-// // We do not change the state of any children
-// // in our tree.
-// func (c *IdemCloseChan) Reinit() {
-// 	c.mut.Lock()
-// 	defer c.mut.Unlock()
-// 	c.Chan = make(chan struct{})
-// 	c.closed = false
-// }
 
 // NewIdemCloseChan makes a new IdemCloseChan.
 func NewIdemCloseChan() *IdemCloseChan {
@@ -445,6 +426,7 @@ func (h *Halter) visit(visitSelf bool, f func(y *Halter)) {
 // reason closes.
 func (c *IdemCloseChan) WaitTilClosed(giveup <-chan struct{}) (err error) {
 
+	// true here means close ourselves before returning.
 	err = c.helperWaitTilClosed(giveup, true)
 	if err != nil {
 		return
@@ -465,7 +447,12 @@ func (c *IdemCloseChan) helperWaitTilClosed(giveup <-chan struct{}, closeSelf bo
 		err = why
 		return
 	}
-	for _, child := range c.children {
+	// a little bit of protection against simultaneous mutation
+	lock(nil, c)
+	bairn := append([]*IdemCloseChan{}, c.children...)
+	unlock()
+
+	for _, child := range bairn {
 		err1 := child.helperWaitTilClosed(giveup, true)
 		// first error is sticky
 		if err == nil {
@@ -508,21 +495,6 @@ func (c *IdemCloseChan) WaitTilChildrenClosed(giveup <-chan struct{}) (err error
 	}
 	return
 }
-
-// func (c *IdemCloseChan) nolockingWaitTilChildrenClosed(giveup <-chan struct{}) (err error) {
-
-// 	for _, child := range c.children {
-// 		child.WaitTilClosed(giveup)
-// 		//child.nolockingWaitTilClosed(giveup)
-// 	}
-// 	for _, child := range c.children {
-// 		err = child.FirstTreeReason()
-// 		if err != nil {
-// 			return err
-// 		}
-// 	}
-// 	return
-// }
 
 // FirstTreeReason scans the whole tree root at c
 // for the first non-nil close reason, and returns it.
