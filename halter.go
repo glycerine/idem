@@ -440,7 +440,8 @@ func (c *IdemCloseChan) WaitTilClosed(giveup <-chan struct{}) (err error) {
 	return
 }
 
-// PRE: the lock is not held
+// PRE: the lock is not held. We never hold
+// hold it for long either.
 func (c *IdemCloseChan) helperWaitTilClosed(giveup <-chan struct{}, closeSelf bool) (err error) {
 	why, isClosed := c.Reason()
 	if isClosed {
@@ -448,6 +449,7 @@ func (c *IdemCloseChan) helperWaitTilClosed(giveup <-chan struct{}, closeSelf bo
 		return
 	}
 	// a little bit of protection against simultaneous mutation
+	// since we don't/can't hold the lock during recursion.
 	lock(nil, c)
 	bairn := append([]*IdemCloseChan{}, c.children...)
 	unlock()
@@ -467,9 +469,7 @@ func (c *IdemCloseChan) helperWaitTilClosed(giveup <-chan struct{}, closeSelf bo
 			if err != nil {
 				return
 			}
-			if err == nil {
-				err = c.FirstTreeReason()
-			}
+			err = c.FirstTreeReason()
 			return
 		case <-giveup:
 			return ErrGiveUp
