@@ -24,16 +24,20 @@ func init() {
 	globalTreeLock = s
 }
 
-func lock(bail chan struct{}) {
+func lock(bail chan struct{}) bool {
 	select {
 	case <-globalTreeLock.availCh:
+		return true
 	case <-bail:
+		return false
 	}
 }
-func unlock(bail chan struct{}) {
+func unlock(bail chan struct{}) bool {
 	select {
 	case globalTreeLock.availCh <- struct{}{}:
+		return true
 	case <-bail:
+		return false
 	}
 }
 
