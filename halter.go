@@ -8,7 +8,7 @@ import (
 
 // to avoid locking/deadlock issues, processes
 // including this package get exactly one
-// process-global single mutex for all Halter
+// process-global single lock for all Halter
 // and IdemCloseChan tree operations.
 var globalTreeLock *globalSingleLock
 
@@ -24,6 +24,8 @@ func init() {
 	globalTreeLock = s
 }
 
+// lock returns true if it got the lock,
+// false if it bailed beforehand.
 func lock(bail chan struct{}) bool {
 	select {
 	case <-globalTreeLock.availCh:
@@ -32,6 +34,9 @@ func lock(bail chan struct{}) bool {
 		return false
 	}
 }
+
+// lock returns true if it unlocked the lock,
+// false if it bailed beforehand.
 func unlock(bail chan struct{}) bool {
 	select {
 	case globalTreeLock.availCh <- struct{}{}:
