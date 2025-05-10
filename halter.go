@@ -115,6 +115,17 @@ func (c *IdemCloseChan) Close() error {
 	defer unlock(nil)
 	return c.unlockedClose()
 }
+
+var ErrBailed = fmt.Errorf("bail chan closed before getting the lock")
+
+func (c *IdemCloseChan) CloseOrBail(bail chan struct{}) (err error, bailed bool) {
+	if !lock(bail) { // hung here Test106TaskWait
+		return ErrBailed, true
+	}
+	defer unlock(nil)
+	return c.unlockedClose(), false
+}
+
 func (c *IdemCloseChan) unlockedClose() error {
 	if !c.closed {
 		close(c.Chan)
