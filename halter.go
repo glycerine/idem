@@ -6,13 +6,18 @@ import (
 	"time"
 )
 
+// to avoid locking/deadlock issues, processes
+// including this package get exactly one
+// process-global single mutex for all Halter
+// and IdemCloseChan tree operations.
+var globalTreeLock sync.Mutex
+
 // IdemCloseChan can have Close() called on it
 // multiple times, and it will only close
 // Chan once.
 type IdemCloseChan struct {
 	Chan   chan struct{}
 	closed bool
-	mut    sync.Mutex
 
 	children []*IdemCloseChan
 
@@ -77,13 +82,16 @@ var ErrAlreadyClosed = fmt.Errorf("Chan already closed")
 // channel is already closed, so the recursion stops at
 // the depth of the first already-closed node in the tree.
 func (c *IdemCloseChan) Close() error {
-	c.mut.Lock()
-	defer c.mut.Unlock()
+	globalTreeLock.Lock()
+	defer globalTreeLock.Unlock()
+	return c.unlockedClose()
+}
+func (c *IdemCloseChan) unlockedClose() error {
 	if !c.closed {
 		close(c.Chan)
 		c.closed = true
 		for _, child := range c.children {
-			child.Close()
+			child.unlockedClose()
 		}
 		return nil
 	}
@@ -100,14 +108,18 @@ func (c *IdemCloseChan) Close() error {
 // and if any child is already closed the
 // recursion stops.
 func (c *IdemCloseChan) CloseWithReason(why error) error {
-	c.mut.Lock()
-	defer c.mut.Unlock()
+	globalTreeLock.Lock()
+	defer globalTreeLock.Unlock()
+	return c.unlockedCloseWithReason(why)
+}
+
+func (c *IdemCloseChan) unlockedCloseWithReason(why error) error {
 	if !c.closed {
 		c.whyClosed = why
 		close(c.Chan)
 		c.closed = true
 		for _, child := range c.children {
-			child.CloseWithReason(why)
+			child.unlockedCloseWithReason(why)
 		}
 		return nil
 	}
@@ -126,8 +138,12 @@ func (c *IdemCloseChan) CloseWithReason(why error) error {
 // Callers should be prepared to handle a nil why
 // no matter what the state of isClosed.
 func (c *IdemCloseChan) Reason() (why error, isClosed bool) {
-	c.mut.Lock()
-	defer c.mut.Unlock()
+	globalTreeLock.Lock()
+	defer globalTreeLock.Unlock()
+	return c.unlockedReason()
+}
+
+func (c *IdemCloseChan) unlockedReason() (why error, isClosed bool) {
 	why = c.whyClosed
 	isClosed = c.closed
 	return
@@ -136,16 +152,24 @@ func (c *IdemCloseChan) Reason() (why error, isClosed bool) {
 // Reason1 is the same as Reason but without the isClosed.
 // This is easier to use in logging.
 func (c *IdemCloseChan) Reason1() (why error) {
-	c.mut.Lock()
-	defer c.mut.Unlock()
+	globalTreeLock.Lock()
+	defer globalTreeLock.Unlock()
+	return c.unlockedReason1()
+}
+
+func (c *IdemCloseChan) unlockedReason1() (why error) {
 	why = c.whyClosed
 	return
 }
 
 // IsClosed tells you if Chan is already closed or not.
 func (c *IdemCloseChan) IsClosed() bool {
-	c.mut.Lock()
-	defer c.mut.Unlock()
+	globalTreeLock.Lock()
+	defer globalTreeLock.Unlock()
+	return c.closed
+}
+
+func (c *IdemCloseChan) unlockedIsClosed() bool {
 	return c.closed
 }
 
@@ -161,8 +185,6 @@ type Halter struct {
 	// in order to recognize shutdown requests.
 	ReqStop *IdemCloseChan
 
-	// cmut protects children
-	cmut     sync.Mutex
 	children []*Halter
 }
 
@@ -206,19 +228,28 @@ func (c *IdemCloseChan) AddChild(child *IdemCloseChan) {
 	if child == c {
 		panic("cannot add ourselves as a child of ourselves; would deadlock")
 	}
-	c.mut.Lock()
+	globalTreeLock.Lock()
+	defer globalTreeLock.Unlock()
+	c.unlockedAddChild(child)
+}
+
+func (c *IdemCloseChan) unlockedAddChild(child *IdemCloseChan) {
+	if child == c {
+		panic("cannot add ourselves as a child of ourselves; would deadlock")
+	}
 	if c.closed {
-		child.CloseWithReason(c.whyClosed)
+		child.unlockedCloseWithReason(c.whyClosed)
 	}
 	c.children = append(c.children, child)
 	//vv("IdemCloseChan.AddChild() now has %v children", len(c.children))
-	c.mut.Unlock()
 }
 
 func (c *IdemCloseChan) RemoveChild(child *IdemCloseChan) {
-	c.mut.Lock()
-	defer c.mut.Unlock()
-
+	globalTreeLock.Lock()
+	defer globalTreeLock.Unlock()
+	c.unlockedRemoveChild(child)
+}
+func (c *IdemCloseChan) unlockedRemoveChild(child *IdemCloseChan) {
 	for i, ch := range c.children {
 		if ch == child {
 			c.children = append(c.children[:i], c.children[i+1:]...)
@@ -239,25 +270,29 @@ func (h *Halter) AddChild(child *Halter) {
 	if child == h {
 		panic("cannot add ourselves as a child of ourselves; would deadlock")
 	}
-	h.cmut.Lock()
+	globalTreeLock.Lock()
+	defer globalTreeLock.Unlock()
+
 	h.children = append(h.children, child)
-	h.ReqStop.AddChild(child.ReqStop)
-	h.cmut.Unlock()
+	h.ReqStop.unlockedAddChild(child.ReqStop)
 }
 
 // RemoveChild removes child from the set
 // of h.children. It does not undo any
 // close operation that AddChild did on addition.
 func (h *Halter) RemoveChild(child *Halter) {
-	h.cmut.Lock()
-	defer h.cmut.Unlock()
+	globalTreeLock.Lock()
+	defer globalTreeLock.Unlock()
+	h.unlockedRemoveChild(child)
+}
+func (h *Halter) unlockedRemoveChild(child *Halter) {
 	for i, ch := range h.children {
 		if ch == child {
 			h.children = append(h.children[:i], h.children[i+1:]...)
 			return
 		}
 	}
-	h.ReqStop.RemoveChild(child.ReqStop)
+	h.ReqStop.unlockedRemoveChild(child.ReqStop)
 }
 
 // StopTreeAndWaitTilDone first calls ReqStop.CloseWithReason(why)
@@ -327,9 +362,6 @@ func (h *Halter) visit(visitSelf bool, f func(y *Halter)) {
 		f(h)
 	}
 
-	h.cmut.Lock()
-	defer h.cmut.Unlock()
-
 	for _, child := range h.children {
 		child.visit(true, f)
 	}
@@ -365,19 +397,22 @@ func (h *Halter) visit(visitSelf bool, f func(y *Halter)) {
 // not used, or that there were only nil
 // reason closes.
 func (c *IdemCloseChan) WaitTilClosed(giveup <-chan struct{}) (err error) {
-	c.mut.Lock()
+	globalTreeLock.Lock()
+	defer globalTreeLock.Unlock()
+	return c.unlockedWaitTilClosed(giveup)
+
+}
+func (c *IdemCloseChan) unlockedWaitTilClosed(giveup <-chan struct{}) (err error) {
 	if c.closed {
 		err = c.whyClosed
-		c.mut.Unlock()
 		return
 	}
 	// avoid data races if our advice above is ignored.
 	bairn := append([]*IdemCloseChan{}, c.children...)
-	c.mut.Unlock()
 	// INVAR: we were open, and c.mut is now not held,
 	// so we can be closed.
 	for _, child := range bairn {
-		err1 := child.WaitTilClosed(giveup)
+		err1 := child.unlockedWaitTilClosed(giveup)
 		// first error is sticky
 		if err == nil {
 			err = err1
@@ -389,7 +424,7 @@ func (c *IdemCloseChan) WaitTilClosed(giveup <-chan struct{}) (err error) {
 		if err != nil {
 			return
 		}
-		err, _ = c.Reason()
+		err, _ = c.unlockedReason()
 		return
 	case <-giveup:
 		return ErrGiveUp
@@ -400,14 +435,17 @@ func (c *IdemCloseChan) WaitTilClosed(giveup <-chan struct{}) (err error) {
 // does not require (or check) if we ourselves, the root
 // of our tree, is closed.
 func (c *IdemCloseChan) WaitTilChildrenClosed(giveup <-chan struct{}) (err error) {
-	c.mut.Lock()
-	defer c.mut.Unlock()
+	globalTreeLock.Lock()
+	defer globalTreeLock.Unlock()
+	return c.unlockedWaitTilChildrenClosed(giveup)
+}
+func (c *IdemCloseChan) unlockedWaitTilChildrenClosed(giveup <-chan struct{}) (err error) {
 
 	for _, child := range c.children {
-		child.WaitTilClosed(giveup)
+		child.unlockedWaitTilClosed(giveup)
 	}
 	for _, child := range c.children {
-		err = child.FirstTreeReason()
+		err = child.unlockedFirstTreeReason()
 		if err != nil {
 			return err
 		}
@@ -420,8 +458,14 @@ func (c *IdemCloseChan) WaitTilChildrenClosed(giveup <-chan struct{}) (err error
 // If the tree is not completely closed at any node,
 // it returns ErrNotClosed.
 func (c *IdemCloseChan) FirstTreeReason() (err error) {
+	globalTreeLock.Lock()
+	defer globalTreeLock.Unlock()
+	return c.unlockedFirstTreeReason()
+}
 
-	why, isClosed := c.Reason()
+func (c *IdemCloseChan) unlockedFirstTreeReason() (err error) {
+
+	why, isClosed := c.unlockedReason()
 	if !isClosed {
 		return ErrNotClosed
 	}
@@ -429,10 +473,8 @@ func (c *IdemCloseChan) FirstTreeReason() (err error) {
 		return why
 	}
 
-	c.mut.Lock()
-	defer c.mut.Unlock()
 	for _, child := range c.children {
-		err = child.FirstTreeReason()
+		err = child.unlockedFirstTreeReason()
 		if err != nil {
 			return err
 		}
@@ -450,8 +492,11 @@ func (c *IdemCloseChan) FirstTreeReason() (err error) {
 // in TaskWait, or just integreate c.Chan
 // into your own select loop.
 func (c *IdemCloseChan) TaskAdd(delta int) (newval int) {
-	c.mut.Lock()
-	defer c.mut.Unlock()
+	globalTreeLock.Lock()
+	defer globalTreeLock.Unlock()
+	return c.unlockedTaskAdd(delta)
+}
+func (c *IdemCloseChan) unlockedTaskAdd(delta int) (newval int) {
 	c.taskCount += delta
 	newval = c.taskCount
 	if c.taskCount <= 0 {
@@ -462,7 +507,7 @@ func (c *IdemCloseChan) TaskAdd(delta int) (newval int) {
 			close(c.Chan)
 			c.closed = true
 			for _, child := range c.children {
-				child.CloseWithReason(c.whyClosed)
+				child.unlockedCloseWithReason(c.whyClosed)
 			}
 		}
 	} else {
