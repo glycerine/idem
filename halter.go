@@ -111,7 +111,7 @@ var ErrAlreadyClosed = fmt.Errorf("Chan already closed")
 // channel is already closed, so the recursion stops at
 // the depth of the first already-closed node in the tree.
 func (c *IdemCloseChan) Close() error {
-	lock(nil) // hung here Test106TaskWait
+	lock(nil) // was hung here Test106TaskWait, before chan based lock
 	defer unlock(nil)
 	return c.unlockedClose()
 }
@@ -119,7 +119,7 @@ func (c *IdemCloseChan) Close() error {
 var ErrBailed = fmt.Errorf("bail chan closed before getting the lock")
 
 func (c *IdemCloseChan) CloseOrBail(bail chan struct{}) (err error, bailed bool) {
-	if !lock(bail) { // hung here Test106TaskWait
+	if !lock(bail) {
 		return ErrBailed, true
 	}
 	defer unlock(nil)
