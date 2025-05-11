@@ -1,9 +1,12 @@
-# idem.Halter
+idem: idempotently closable channels for halting goroutines
+====
 
-idem.Halter supports a common pattern for halting goroutines in Go.
+Package idem supports a common pattern for 
+halting goroutines in Go.
 
-The test file halter_test.go is fairly
-self explanatory. 
+The implementation in halter.go is fairly self explanatory. 
+
+The test file halter_test.go has lots of examples.
 
 The summary is: Halter is used for shutting
 down goroutines, and waiting until they
@@ -16,3 +19,8 @@ goroutine stop, and Done for it to
 acknowledge it is just about to exit.
 
 It is really simple actually.
+
+----
+Copyright (c) 2025 by Jason E. Aten, Ph.D.
+
+Licence: 3-clause BSD, same as Go. See the LICENSE file.
