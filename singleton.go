@@ -10,6 +10,10 @@ var (
 
 	// Warning: these two strings must never be changed, ever.
 	// They must be set in stone for the singleton check to work.
+	//
+	// NOT EVEN, and ESPECIALLY if you are maing a v2, v3, etc --
+	// these could all collide! Leave both of these alone!
+	//
 	envSingletonPrefix = "GOLANG_SINGLETON_PACKAGE_REQUIRED_"
 
 	thisPackageName = "github.com/glycerine/idem"
