@@ -2,8 +2,9 @@ package idem
 
 import (
 	"fmt"
-	"sync"
 	"time"
+
+	mut "github.com/glycerine/global_single_mutex"
 )
 
 // To avoid deadlock issues, any goroutine
@@ -31,7 +32,6 @@ import (
 // impact from this design, while gaining
 // deadlock freedom and a simple, easy to reason about
 // implementation.
-var mut sync.Mutex // the single mutex for idem.
 
 // IdemCloseChan can have Close() called on it
 // multiple times, and it will only close
