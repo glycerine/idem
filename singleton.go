@@ -40,7 +40,7 @@ func init() {
 
 	// Another instance exists! crash with error.
 	fmt.Fprintf(os.Stderr, `
-%v FATAL error: env var 
+%v [PID %v] %v FATAL error: env var 
     %v 
 has already been claimed. Multiple instances of this package,
     %v
@@ -53,7 +53,7 @@ only a single version of this package is used;
 adjust your dependencies and go.mod file.
 
 Exiting now for safety.
-`, fileLine(2), nm, thisPackageName)
+`, os.Args[0], os.Getpid(), fileLine(2), nm, thisPackageName)
 
 	os.Exit(1)
 
