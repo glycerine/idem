@@ -534,7 +534,7 @@ func Test106TaskWait(t *testing.T) {
 				defer func() {
 					live.Add(-1)
 					fmt.Printf("worker %v has finished.\n", worker)
-					h.ReqStop.Close() // (was) hung here Test106TaskWait, before chan based lock.
+					h.ReqStop.Close()
 					h.Done.Close()
 				}()
 				for {

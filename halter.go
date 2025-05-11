@@ -6,26 +6,32 @@ import (
 	"time"
 )
 
-// To avoid deadlock issues, a process
-// including this package gets exactly one
-// process-global single mutex for idem.
-// This is used for all idem.Halter
-// and idem.IdemCloseChan operations. Because the same
-// lock is used by all packages in this process
-// that are utilizing idem, there cannot be
-// any lock ordering changes
-// between them, which would create deadlocks.
+// To avoid deadlock issues, any goroutine
+// using this package synchronizes
+// with other goroutines using
+// a process-wide single mutex.
+// This lock is used for all idem.Halter
+// and idem.IdemCloseChan operations,
+// even for goroutines from different packages.
+// This is a common idiom used by the
+// Go standard library.
+//
+// Because the same mutex is used by
+// all goroutines, there cannot be any
+// two-lock ordering variation, which
+// would create deadlocks. In earlier designs,
+// we observed such deadlocks when packages would
+// add sub-package Halters as children
+// of their own Halter to form a supervision tree.
+//
 // Since shutdown is not a performance
-// sensitive event, this approach is reasonable.
-var globalTreeLock sync.Mutex
-
-func lock() {
-	globalTreeLock.Lock()
-}
-
-func unlock() {
-	globalTreeLock.Unlock()
-}
+// sensitive event, and even end-of-operation
+// coordination should be a minor part of
+// an overall task, we expect minimal performance
+// impact from this design, while gaining
+// deadlock freedom and a simple, easy to reason about
+// implementation.
+var mut sync.Mutex // the single mutex for idem.
 
 // IdemCloseChan can have Close() called on it
 // multiple times, and it will only close
@@ -77,9 +83,8 @@ var ErrAlreadyClosed = fmt.Errorf("Chan already closed")
 // channel is already closed, so the recursion stops at
 // the depth of the first already-closed node in the tree.
 func (c *IdemCloseChan) Close() error {
-	// was hung on lock here in Test106TaskWait, before chan based lock
-	lock()
-	defer unlock()
+	mut.Lock()
+	defer mut.Unlock()
 	return c.nolockingClose()
 }
 
@@ -107,8 +112,8 @@ func (c *IdemCloseChan) nolockingClose() error {
 // and if any child is already closed the
 // recursion stops.
 func (c *IdemCloseChan) CloseWithReason(why error) error {
-	lock()
-	defer unlock()
+	mut.Lock()
+	defer mut.Unlock()
 	return c.nolockingCloseWithReason(why)
 }
 
@@ -137,8 +142,8 @@ func (c *IdemCloseChan) nolockingCloseWithReason(why error) error {
 // Callers should be prepared to handle a nil why
 // no matter what the state of isClosed.
 func (c *IdemCloseChan) Reason() (why error, isClosed bool) {
-	lock()
-	defer unlock()
+	mut.Lock()
+	defer mut.Unlock()
 	return c.nolockingReason()
 }
 
@@ -151,8 +156,8 @@ func (c *IdemCloseChan) nolockingReason() (why error, isClosed bool) {
 // Reason1 is the same as Reason but without the isClosed.
 // This is easier to use in logging.
 func (c *IdemCloseChan) Reason1() (why error) {
-	lock()
-	defer unlock()
+	mut.Lock()
+	defer mut.Unlock()
 	return c.nolockingReason1()
 }
 
@@ -163,8 +168,8 @@ func (c *IdemCloseChan) nolockingReason1() (why error) {
 
 // IsClosed tells you if Chan is already closed or not.
 func (c *IdemCloseChan) IsClosed() bool {
-	lock()
-	defer unlock()
+	mut.Lock()
+	defer mut.Unlock()
 	return c.closed
 }
 
@@ -227,8 +232,8 @@ func (c *IdemCloseChan) AddChild(child *IdemCloseChan) {
 	if child == c {
 		panic("cannot add ourselves as a child of ourselves; would deadlock")
 	}
-	lock()
-	defer unlock()
+	mut.Lock()
+	defer mut.Unlock()
 	c.nolockingAddChild(child)
 }
 
@@ -244,8 +249,8 @@ func (c *IdemCloseChan) nolockingAddChild(child *IdemCloseChan) {
 }
 
 func (c *IdemCloseChan) RemoveChild(child *IdemCloseChan) {
-	lock()
-	defer unlock()
+	mut.Lock()
+	defer mut.Unlock()
 	c.nolockingRemoveChild(child)
 }
 func (c *IdemCloseChan) nolockingRemoveChild(child *IdemCloseChan) {
@@ -269,8 +274,8 @@ func (h *Halter) AddChild(child *Halter) {
 	if child == h {
 		panic("cannot add ourselves as a child of ourselves; would deadlock")
 	}
-	lock()
-	defer unlock()
+	mut.Lock()
+	defer mut.Unlock()
 
 	h.children = append(h.children, child)
 	h.ReqStop.nolockingAddChild(child.ReqStop)
@@ -280,8 +285,8 @@ func (h *Halter) AddChild(child *Halter) {
 // of h.children. It does not undo any
 // close operation that AddChild did on addition.
 func (h *Halter) RemoveChild(child *Halter) {
-	lock()
-	defer unlock()
+	mut.Lock()
+	defer mut.Unlock()
 	h.nolockingRemoveChild(child)
 }
 func (h *Halter) nolockingRemoveChild(child *Halter) {
@@ -339,7 +344,7 @@ func (h *Halter) waitTilDoneOrAtMost(atMost time.Duration, giveup <-chan struct{
 	//vv("in waitTilDoneOrAtMost, atMost = %v, visitSelf=%v in h Halter=%p", atMost, visitSelf, h)
 	h.visit(visitSelf, func(y *Halter) {
 		//vv("timeout in waitTilDoneOrAtMost t=%p, atMost = %v, visitSelf=%v in h Halter=%p", to, atMost, visitSelf, h)
-		select { // hung here Test106TaskWait
+		select {
 		case <-y.Done.Chan:
 		case <-to:
 			timerGone.Close() // since timers are only good once:
@@ -412,9 +417,9 @@ func (c *IdemCloseChan) helperWaitTilClosed(giveup <-chan struct{}, closeSelf bo
 	}
 	// a little bit of protection against simultaneous mutation
 	// since we don't/can't hold the lock during recursion.
-	lock()
+	mut.Lock()
 	bairn := append([]*IdemCloseChan{}, c.children...)
-	unlock()
+	mut.Unlock()
 
 	for _, child := range bairn {
 		err1 := child.helperWaitTilClosed(giveup, true)
@@ -463,8 +468,8 @@ func (c *IdemCloseChan) WaitTilChildrenClosed(giveup <-chan struct{}) (err error
 // If the tree is not completely closed at any node,
 // it returns ErrNotClosed.
 func (c *IdemCloseChan) FirstTreeReason() (err error) {
-	lock()
-	defer unlock()
+	mut.Lock()
+	defer mut.Unlock()
 	return c.nolockingFirstTreeReason()
 }
 
@@ -497,8 +502,8 @@ func (c *IdemCloseChan) nolockingFirstTreeReason() (err error) {
 // in TaskWait, or just integreate c.Chan
 // into your own select loop.
 func (c *IdemCloseChan) TaskAdd(delta int) (newval int) {
-	lock()
-	defer unlock()
+	mut.Lock()
+	defer mut.Unlock()
 	return c.nolockingTaskAdd(delta)
 }
 func (c *IdemCloseChan) nolockingTaskAdd(delta int) (newval int) {
