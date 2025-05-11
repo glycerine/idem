@@ -35,9 +35,11 @@ func init() {
 		// No existing instance, we're the first,
 		// and hopefully only, one.
 		os.Setenv(nm, "claimed")
-	} else {
-		// Another instance exists! crash with error.
-		fmt.Fprintf(os.Stderr, `
+		return
+	}
+
+	// Another instance exists! crash with error.
+	fmt.Fprintf(os.Stderr, `
 %v FATAL error: env var 
     %v 
 has already been claimed. Multiple instances of this package,
@@ -53,6 +55,6 @@ adjust your dependencies and go.mod file.
 Exiting now for safety.
 `, fileLine(2), nm, thisPackageName)
 
-		os.Exit(1)
-	}
+	os.Exit(1)
+
 }
