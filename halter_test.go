@@ -7,6 +7,10 @@ import (
 	"time"
 )
 
+func init() {
+	fmt.Printf("globalUseSynctest = %v\n", globalUseSynctest)
+}
+
 func Test101IdemCloseChan(t *testing.T) {
 	bubbleOrNot(func() {
 		// "IdemCloseChan should be safe for multiple Close()

@@ -277,7 +277,7 @@ func (h *Halter) AddChild(child *Halter) {
 	mut.Lock()
 	defer mut.Unlock()
 
-	h.children = append(h.children, child)
+	h.children = append(h.children, child) // write race vs :366
 	h.ReqStop.nolockingAddChild(child.ReqStop)
 }
 
@@ -363,7 +363,11 @@ func (h *Halter) visit(visitSelf bool, f func(y *Halter)) {
 		f(h)
 	}
 
-	for _, child := range h.children {
+	mut.Lock()
+	bairn := append([]*Halter{}, h.children...)
+	mut.Unlock()
+
+	for _, child := range bairn {
 		child.visit(true, f)
 	}
 }
@@ -398,7 +402,12 @@ func (c *IdemCloseChan) WaitTilClosed(giveup <-chan struct{}) (err error) {
 	if err != nil {
 		return
 	}
-	for _, child := range c.children {
+
+	mut.Lock()
+	bairn := append([]*IdemCloseChan{}, c.children...)
+	mut.Unlock()
+
+	for _, child := range bairn {
 		err = child.FirstTreeReason()
 		if err != nil {
 			return err
@@ -454,7 +463,12 @@ func (c *IdemCloseChan) WaitTilChildrenClosed(giveup <-chan struct{}) (err error
 	if err != nil {
 		return
 	}
-	for _, child := range c.children {
+
+	mut.Lock()
+	bairn := append([]*IdemCloseChan{}, c.children...)
+	mut.Unlock()
+
+	for _, child := range bairn {
 		err = child.FirstTreeReason()
 		if err != nil {
 			return err
@@ -492,6 +506,11 @@ func (c *IdemCloseChan) nolockingFirstTreeReason() (err error) {
 	return
 }
 
+// TaskDone subtracts one from the task count.
+func (c *IdemCloseChan) TaskDone() int {
+	return c.TaskAdd(-1)
+}
+
 // TaskAdd adds delta to the taskCount. When
 // the taskCount reaches zero (or below),
 // this channel will be closed.
@@ -506,6 +525,7 @@ func (c *IdemCloseChan) TaskAdd(delta int) (newval int) {
 	defer mut.Unlock()
 	return c.nolockingTaskAdd(delta)
 }
+
 func (c *IdemCloseChan) nolockingTaskAdd(delta int) (newval int) {
 	c.taskCount += delta
 	newval = c.taskCount
@@ -543,9 +563,4 @@ func (c *IdemCloseChan) TaskWait(giveup <-chan struct{}) (err error) {
 		err, _ = c.Reason()
 	}
 	return
-}
-
-// TaskDone subtracts one from the task count.
-func (c *IdemCloseChan) TaskDone() int {
-	return c.TaskAdd(-1)
 }
