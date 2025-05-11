@@ -26,6 +26,10 @@ var (
 // that the process env var space is shared by
 // by all goroutines.
 func init() {
+	singletonCheck_two_versions_of_idem_package_disallowed()
+}
+
+func singletonCheck_two_versions_of_idem_package_disallowed() {
 
 	// Check if another package version is present.
 	nm := envSingletonPrefix + thisPackageName
