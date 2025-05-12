@@ -1,2 +1,4 @@
 github.com/glycerine/global_single_mutex v1.0.1 h1:JXhvHupGSMzH7DMLJEXXdLgZrjGsBzTBr6YyCLViChU=
 github.com/glycerine/global_single_mutex v1.0.1/go.mod h1:EMPzf5TwCw2yeYDzrlojUyL8XJ6qWgLScXhnvUrB/bw=
+github.com/glycerine/global_single_mutex v1.0.2 h1:KC/sPOj5ja496xEbpWCQq/5Ut+hCTfIn/LJTloUpVTc=
+github.com/glycerine/global_single_mutex v1.0.2/go.mod h1:EMPzf5TwCw2yeYDzrlojUyL8XJ6qWgLScXhnvUrB/bw=
