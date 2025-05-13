@@ -1,2 +1,4 @@
-github.com/glycerine/process_wide_single_rwmutex v1.0.0 h1:ykGR5st6a6LMYftBJDtohM/+HwS+6qP3jiDXiXmkuEM=
-github.com/glycerine/process_wide_single_rwmutex v1.0.0/go.mod h1:SdiBPLE7oOa6SBnpK7my2Fnd1+DUeQv3RJOcnnJiIvw=
+github.com/glycerine/one_tree_rwmut v0.0.0-20250513023000-001724448812 h1:XOWGibefJrmJg13ZALQ0SNaSM2F5odM5yU/NsdXU51o=
+github.com/glycerine/one_tree_rwmut v0.0.0-20250513023000-001724448812/go.mod h1:eKKXEG3WkBtQOka9ANdHuIlhqNCc45NcDjBFaG/FMmU=
+github.com/glycerine/one_tree_rwmut v1.0.0 h1:S9/US5QeXZVrXc/0tSUD58NAxKQY9CaezDcD7pwSVtI=
+github.com/glycerine/one_tree_rwmut v1.0.0/go.mod h1:eKKXEG3WkBtQOka9ANdHuIlhqNCc45NcDjBFaG/FMmU=
