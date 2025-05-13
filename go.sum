@@ -1,8 +1,2 @@
-github.com/glycerine/global_single_mutex v1.0.1 h1:JXhvHupGSMzH7DMLJEXXdLgZrjGsBzTBr6YyCLViChU=
-github.com/glycerine/global_single_mutex v1.0.1/go.mod h1:EMPzf5TwCw2yeYDzrlojUyL8XJ6qWgLScXhnvUrB/bw=
-github.com/glycerine/global_single_mutex v1.0.2 h1:KC/sPOj5ja496xEbpWCQq/5Ut+hCTfIn/LJTloUpVTc=
-github.com/glycerine/global_single_mutex v1.0.2/go.mod h1:EMPzf5TwCw2yeYDzrlojUyL8XJ6qWgLScXhnvUrB/bw=
-github.com/glycerine/global_single_mutex v1.0.3 h1:/cpTYgIX7uWgrLLDhCD1GQjRHsqOOST8ieW8WyvwFYs=
-github.com/glycerine/global_single_mutex v1.0.3/go.mod h1:EMPzf5TwCw2yeYDzrlojUyL8XJ6qWgLScXhnvUrB/bw=
-github.com/glycerine/global_single_mutex v1.0.4 h1:FQmWpth5OyI6/rx7Jz23OGLUH4mSJUZeHopevWBeaWo=
-github.com/glycerine/global_single_mutex v1.0.4/go.mod h1:EMPzf5TwCw2yeYDzrlojUyL8XJ6qWgLScXhnvUrB/bw=
+github.com/glycerine/process_wide_single_rwmutex v1.0.0 h1:ykGR5st6a6LMYftBJDtohM/+HwS+6qP3jiDXiXmkuEM=
+github.com/glycerine/process_wide_single_rwmutex v1.0.0/go.mod h1:SdiBPLE7oOa6SBnpK7my2Fnd1+DUeQv3RJOcnnJiIvw=

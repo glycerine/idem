@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	mut "github.com/glycerine/global_single_mutex"
+	mut "github.com/glycerine/process_wide_single_rwmutex"
 )
 
 // To avoid deadlock issues, any goroutine
