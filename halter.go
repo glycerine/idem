@@ -423,10 +423,8 @@ func (h *Halter) waitTilDoneOrAtMost(atMost time.Duration, giveup <-chan struct{
 	//h.visitChildren(f)
 }
 
-// visit self has problems, recursion will visit self twice!
-// want to delete visit--but tests use it, so carefully.
 // visit calls f on each member of h's Halter tree in
-// a pre-order traversal. f(h) is called,
+// a pre-order traversal. f(h) is called if visitSelf,
 // and then f(d) is called recusively on
 // all descendants d of h.
 func (h *Halter) visit(visitSelf bool, f func(y *Halter)) {
