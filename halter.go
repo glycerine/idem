@@ -399,13 +399,13 @@ func (h *Halter) waitTilDoneOrAtMost(atMost time.Duration, giveup <-chan struct{
 	//vv("in waitTilDoneOrAtMost, atMost = %v, visitSelf=%v in h Halter=%p", atMost, visitSelf, h)
 	h.visit(visitSelf, func(y *Halter) {
 		if isCycle[y] {
-			panic(fmt.Sprintf("cycle detected on y = %p", y))
+			//panic(fmt.Sprintf("cycle detected on y = %p", y))
 			return
 		}
 		isCycle[y] = true
 		if visitSelf {
 			if isCycle[h] {
-				panic(fmt.Sprintf("cycle detected, not waiting on h=%p again", h))
+				//panic(fmt.Sprintf("cycle detected, not waiting on h=%p again", h))
 				return
 			}
 			isCycle[h] = true
