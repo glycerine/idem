@@ -255,13 +255,15 @@ func (h *Halter) AddChild(child *Halter) {
 	mut.Lock()
 	defer mut.Unlock()
 
-	htree := map[*Halter]bool{h: true, child: true}
-	for _, c := range h.children {
-		if child == c {
-			panic(fmt.Sprintf("arg. already added! Halter.AddChild() sees duplicate Halter child: %p", child))
+	if len(h.children) > 0 {
+		htree := map[*Halter]bool{h: true, child: true}
+		for _, c := range h.children {
+			if child == c {
+				panic(fmt.Sprintf("arg. already added! Halter.AddChild() sees duplicate Halter child: %p", child))
+			}
+			halterCyclesPanic(htree, c)
+			htree[c] = true
 		}
-		halterCyclesPanic(htree, c)
-		htree[c] = true
 	}
 	h.children = append(h.children, child)     // halter children
 	h.ReqStop.nolockingAddChild(child.ReqStop) // ReqStop children
@@ -301,20 +303,21 @@ func (c *IdemCloseChan) nolockingAddChild(child *IdemCloseChan) {
 	if c.closed {
 		child.nolockingCloseWithReason(c.whyClosed)
 	}
-	// check for duplicates, they cause deadlocks.
-	ctree := map[*IdemCloseChan]bool{c: true, child: true}
 
-	//pre := len(c.children)
-	//_ = pre
-	//ptrs := []string{fmt.Sprintf("%p", child)}
-	for _, e := range c.children {
-		if e == child {
-			panic(fmt.Sprintf("already have IdemCloseChan child %p, don't make dups/cycles!", child))
-		} else {
-			//ptrs = append(ptrs, fmt.Sprintf(", %p", e))
+	if len(c.children) > 0 {
+		// check for duplicates/cycles. they cause problems/deadlocks.
+		ctree := map[*IdemCloseChan]bool{c: true, child: true}
+		//pre := len(c.children)
+		//ptrs := []string{fmt.Sprintf("%p", child)}
+		for _, e := range c.children {
+			if e == child {
+				panic(fmt.Sprintf("already have IdemCloseChan child %p, don't make dups/cycles!", child))
+			} else {
+				//ptrs = append(ptrs, fmt.Sprintf(", %p", e))
+			}
+			chanCyclesPanic(ctree, e)
+			ctree[e] = true
 		}
-		chanCyclesPanic(ctree, e)
-		ctree[e] = true
 	}
 	c.children = append(c.children, child)
 	//vv("IdemCloseChan(%p).AddChild() grew, now has %v -> %v children {%v}", c, pre, len(c.children), ptrs)
