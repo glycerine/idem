@@ -374,7 +374,7 @@ func (h *Halter) StopTreeAndWaitTilDone(atMost time.Duration, giveup <-chan stru
 	// root. That way we can wait to close our own Done
 	// until the very end, allowing a user to recursively
 	// wait on a halter tree.
-	isCycle := map[*Halter]bool{} // h: true}
+	isCycle := map[*Halter]bool{}
 	h.waitTilDoneOrAtMost(atMost, giveup, false, isCycle)
 
 	h.Done.CloseWithReason(why)
@@ -394,24 +394,23 @@ func (h *Halter) waitTilDoneOrAtMost(atMost time.Duration, giveup <-chan struct{
 	timerGone := NewIdemCloseChan()
 	if atMost > 0 {
 		to = time.After(atMost)
+		//vv("the to timeout was made, to fire at %v", time.Now().Add(atMost))
 	}
 	//vv("in waitTilDoneOrAtMost, atMost = %v, visitSelf=%v in h Halter=%p", atMost, visitSelf, h)
 	h.visit(visitSelf, func(y *Halter) {
 		if isCycle[y] {
-			//vv("cycle detected, not waiting on y=%p again", y)
 			panic(fmt.Sprintf("cycle detected on y = %p", y))
 			return
 		}
 		isCycle[y] = true
 		if visitSelf {
 			if isCycle[h] {
-				vv("cycle detected, not waiting on h=%p again", h)
-				panic("cycle detected on h!")
+				panic(fmt.Sprintf("cycle detected, not waiting on h=%p again", h))
 				return
 			}
 			isCycle[h] = true
 		}
-		//vv("timeout in waitTilDoneOrAtMost t=%p, atMost = %v, visitSelf=%v in h Halter=%p, y.Done= %p", to, atMost, visitSelf, h, y.Done)
+		//vv("timeout in waitTilDoneOrAtMost t=%p, atMost = %v, visitSelf=%v in h Halter=%p, y.Done= %p, y.Done.IsClosed=%v", to, atMost, visitSelf, h, y.Done, y.Done.IsClosed())
 		select {
 		case <-y.Done.Chan:
 		case <-to:
@@ -420,7 +419,6 @@ func (h *Halter) waitTilDoneOrAtMost(atMost time.Duration, giveup <-chan struct{
 		case <-giveup:
 		}
 	})
-	//h.visitChildren(f)
 }
 
 // visit calls f on each member of h's Halter tree in
