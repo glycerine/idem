@@ -225,29 +225,6 @@ func (h *Halter) IsDone() bool {
 	return h.Done.IsClosed()
 }
 
-// AddChild adds a child IdemCloseChan that will
-// be closed when its parent is Close()-ed. If
-// c is already closed, we close child immediately.
-func (c *IdemCloseChan) AddChild(child *IdemCloseChan) {
-	if child == c {
-		panic("cannot add ourselves as a child of ourselves; would deadlock")
-	}
-	mut.Lock()
-	defer mut.Unlock()
-	c.nolockingAddChild(child)
-}
-
-func (c *IdemCloseChan) nolockingAddChild(child *IdemCloseChan) {
-	if child == c {
-		panic("cannot add ourselves as a child of ourselves; would deadlock")
-	}
-	if c.closed {
-		child.nolockingCloseWithReason(c.whyClosed)
-	}
-	c.children = append(c.children, child)
-	//vv("IdemCloseChan.AddChild() now has %v children", len(c.children))
-}
-
 func (c *IdemCloseChan) RemoveChild(child *IdemCloseChan) {
 	mut.Lock()
 	defer mut.Unlock()
@@ -271,14 +248,90 @@ func (c *IdemCloseChan) nolockingRemoveChild(child *IdemCloseChan) {
 // ClosedWithReason with the same reason
 // as h, if any is available.
 func (h *Halter) AddChild(child *Halter) {
+	//vv("Halter(%p).AddChild(%p)  h.ReqStop=%p  child.ReqStop=%p", h, child, h.ReqStop, child.ReqStop)
 	if child == h {
-		panic("cannot add ourselves as a child of ourselves; would deadlock")
+		panic("Halter.AddChild(): cannot add ourselves as a child of ourselves; would deadlock")
 	}
 	mut.Lock()
 	defer mut.Unlock()
 
-	h.children = append(h.children, child) // write race vs :366
-	h.ReqStop.nolockingAddChild(child.ReqStop)
+	htree := map[*Halter]bool{h: true, child: true}
+	for _, c := range h.children {
+		if child == c {
+			panic(fmt.Sprintf("arg. already added! Halter.AddChild() sees duplicate Halter child: %p", child))
+		}
+		halterCyclesPanic(htree, c)
+		htree[c] = true
+	}
+	h.children = append(h.children, child)     // halter children
+	h.ReqStop.nolockingAddChild(child.ReqStop) // ReqStop children
+}
+
+func halterCyclesPanic(htree map[*Halter]bool, h *Halter) {
+	for _, c := range h.children {
+		if h == c {
+			panic(fmt.Sprintf("arg. Halter child of itself: %p", c))
+		}
+		if htree[c] {
+			panic(fmt.Sprintf("arg. Halter child already in tree: %p", c))
+		}
+		halterCyclesPanic(htree, c)
+		htree[c] = true
+	}
+}
+
+func chanCyclesPanic(ctree map[*IdemCloseChan]bool, par *IdemCloseChan) {
+	for _, c := range par.children {
+		if par == c {
+			panic(fmt.Sprintf("arg. IdemCloseChan child of itself: %p", c))
+		}
+		if ctree[c] {
+			panic(fmt.Sprintf("arg. IdemCloseChan child already in tree: %p", c))
+		}
+		chanCyclesPanic(ctree, c)
+		ctree[c] = true
+	}
+}
+
+func (c *IdemCloseChan) nolockingAddChild(child *IdemCloseChan) {
+	//vv("IdemCloseChan(%p).nolockingAddChild(%p)", c, child)
+	if child == c {
+		panic("cannot add ourselves as a child of ourselves; would deadlock")
+	}
+	if c.closed {
+		child.nolockingCloseWithReason(c.whyClosed)
+	}
+	// check for duplicates, they cause deadlocks.
+	ctree := map[*IdemCloseChan]bool{c: true, child: true}
+
+	//pre := len(c.children)
+	//_ = pre
+	//ptrs := []string{fmt.Sprintf("%p", child)}
+	for _, e := range c.children {
+		if e == child {
+			panic(fmt.Sprintf("already have IdemCloseChan child %p, don't make dups/cycles!", child))
+		} else {
+			//ptrs = append(ptrs, fmt.Sprintf(", %p", e))
+		}
+		chanCyclesPanic(ctree, e)
+		ctree[e] = true
+	}
+	c.children = append(c.children, child)
+	//vv("IdemCloseChan(%p).AddChild() grew, now has %v -> %v children {%v}", c, pre, len(c.children), ptrs)
+}
+
+// the other client of IdemCloseChan.nolockingAddChild is:
+
+// AddChild adds a child IdemCloseChan that will
+// be closed when its parent is Close()-ed. If
+// c is already closed, we close child immediately.
+func (c *IdemCloseChan) AddChild(child *IdemCloseChan) {
+	if child == c {
+		panic("IdemCloseChan.AddChild(): cannot add ourselves as a child of ourselves; would deadlock")
+	}
+	mut.Lock()
+	defer mut.Unlock()
+	c.nolockingAddChild(child)
 }
 
 // RemoveChild removes child from the set
@@ -321,7 +374,8 @@ func (h *Halter) StopTreeAndWaitTilDone(atMost time.Duration, giveup <-chan stru
 	// root. That way we can wait to close our own Done
 	// until the very end, allowing a user to recursively
 	// wait on a halter tree.
-	h.waitTilDoneOrAtMost(atMost, giveup, false)
+	isCycle := map[*Halter]bool{} // h: true}
+	h.waitTilDoneOrAtMost(atMost, giveup, false, isCycle)
 
 	h.Done.CloseWithReason(why)
 }
@@ -330,7 +384,7 @@ func (h *Halter) StopTreeAndWaitTilDone(atMost time.Duration, giveup <-chan stru
 // all descendents have closed their Done.Chan or atMost
 // time has elapsed. If atMost is <= 0, then we
 // wait indefinitely for all the Done.Chan.
-func (h *Halter) waitTilDoneOrAtMost(atMost time.Duration, giveup <-chan struct{}, visitSelf bool) {
+func (h *Halter) waitTilDoneOrAtMost(atMost time.Duration, giveup <-chan struct{}, visitSelf bool, isCycle map[*Halter]bool) {
 	//defer vv("returning from waitTilDoneOrAtMost, h = %p", h)
 
 	// a nil timeout channel will never fire in a select.
@@ -343,7 +397,21 @@ func (h *Halter) waitTilDoneOrAtMost(atMost time.Duration, giveup <-chan struct{
 	}
 	//vv("in waitTilDoneOrAtMost, atMost = %v, visitSelf=%v in h Halter=%p", atMost, visitSelf, h)
 	h.visit(visitSelf, func(y *Halter) {
-		//vv("timeout in waitTilDoneOrAtMost t=%p, atMost = %v, visitSelf=%v in h Halter=%p", to, atMost, visitSelf, h)
+		if isCycle[y] {
+			//vv("cycle detected, not waiting on y=%p again", y)
+			panic(fmt.Sprintf("cycle detected on y = %p", y))
+			return
+		}
+		isCycle[y] = true
+		if visitSelf {
+			if isCycle[h] {
+				vv("cycle detected, not waiting on h=%p again", h)
+				panic("cycle detected on h!")
+				return
+			}
+			isCycle[h] = true
+		}
+		//vv("timeout in waitTilDoneOrAtMost t=%p, atMost = %v, visitSelf=%v in h Halter=%p, y.Done= %p", to, atMost, visitSelf, h, y.Done)
 		select {
 		case <-y.Done.Chan:
 		case <-to:
@@ -352,13 +420,17 @@ func (h *Halter) waitTilDoneOrAtMost(atMost time.Duration, giveup <-chan struct{
 		case <-giveup:
 		}
 	})
+	//h.visitChildren(f)
 }
 
+// visit self has problems, recursion will visit self twice!
+// want to delete visit--but tests use it, so carefully.
 // visit calls f on each member of h's Halter tree in
 // a pre-order traversal. f(h) is called,
 // and then f(d) is called recusively on
 // all descendants d of h.
 func (h *Halter) visit(visitSelf bool, f func(y *Halter)) {
+	//vv("visit(visitSelf=%v) h=%p", visitSelf, h)
 	if visitSelf {
 		f(h)
 	}
@@ -369,6 +441,19 @@ func (h *Halter) visit(visitSelf bool, f func(y *Halter)) {
 
 	for _, child := range bairn {
 		child.visit(true, f)
+	}
+}
+
+// only visitChildren here
+func (h *Halter) visitChildren(f func(y *Halter)) {
+	//vv("visitChildren() h=%p", visitSelf, h)
+
+	mut.Lock()
+	bairn := append([]*Halter{}, h.children...)
+	mut.Unlock()
+
+	for _, child := range bairn {
+		child.visitChildren(f)
 	}
 }
 
