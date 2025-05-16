@@ -215,6 +215,18 @@ func (h *Halter) RootHalter() (root *Halter) {
 	return
 }
 
+func (h *Halter) RootReqStopClose(why error) error {
+	mut.Lock()
+	defer mut.Unlock()
+
+	root := h
+	// get to the root
+	for root.parent != nil {
+		root = root.parent
+	}
+	return root.ReqStop.nolockingCloseWithReason(why)
+}
+
 // RequestStop closes the h.ReqStop channel
 // if it has not already done so. Safe for
 // multiple goroutine access.
