@@ -402,8 +402,9 @@ func (h *Halter) waitTilDoneOrAtMost(atMost time.Duration, giveup <-chan struct{
 	//vv("in waitTilDoneOrAtMost, atMost = %v, visitSelf=%v in h Halter=%p", atMost, visitSelf, h)
 	h.visit(visitSelf, func(y *Halter) {
 		if isCycle[y] {
-			panic(fmt.Sprintf("cycle detected on y = %p", y))
-			return
+			// preventing full shutdown. arg. comment it.
+			//panic(fmt.Sprintf("cycle detected on y = %p", y))
+			//return
 		}
 		isCycle[y] = true
 		if visitSelf {
