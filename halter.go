@@ -203,6 +203,18 @@ func NewHalter() (h *Halter) {
 	return
 }
 
+func (h *Halter) RootHalter() (root *Halter) {
+	mut.Lock()
+	defer mut.Unlock()
+
+	root = h
+	// get to the root
+	for root.parent != nil {
+		root = root.parent
+	}
+	return
+}
+
 // RequestStop closes the h.ReqStop channel
 // if it has not already done so. Safe for
 // multiple goroutine access.
