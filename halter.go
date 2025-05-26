@@ -2,6 +2,7 @@ package idem
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	mut "github.com/glycerine/one_tree_rwmut"
@@ -192,6 +193,44 @@ type Halter struct {
 
 	parent   *Halter
 	children []*Halter
+	name     string
+}
+
+func NewHalterNamed(name string) (h *Halter) {
+	h = NewHalter()
+	h.name = name
+	return
+}
+
+func (h *Halter) nolocking_str(indent int, mark *Halter) (r string) {
+	s := strings.Repeat(" ", indent)
+	var m string
+	if h == mark {
+		m = " ***"
+	}
+	r = fmt.Sprintf("%v%p halter('%v')%v\n", s, h, h.name, m)
+	for _, c := range h.children {
+		r += c.nolocking_str(indent+4, mark)
+	}
+	return
+}
+
+func (h *Halter) RootString() string {
+	mut.Lock()
+	defer mut.Unlock()
+	return h.unlockedRootStr()
+}
+
+func (h *Halter) unlockedRootStr() (r string) {
+
+	root := h
+	// get to the root
+	for root.parent != nil {
+		root = root.parent
+	}
+	// print the tree, marking myself in it.
+	r = root.nolocking_str(0, h)
+	return
 }
 
 func NewHalter() (h *Halter) {
@@ -288,6 +327,9 @@ func (h *Halter) AddChild(child *Halter) {
 	defer mut.Unlock()
 
 	if child.parent != nil {
+		alwaysPrintf("about to panic on ErrHalterAlreadyHasParent\n"+
+			" child tree = \n%v\n\n vs my tree = \n%v\n",
+			child.unlockedRootStr(), h.unlockedRootStr())
 		panic(ErrHalterAlreadyHasParent)
 	}
 	child.parent = h
