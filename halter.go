@@ -319,7 +319,7 @@ var ErrChanAlreadyHasParent = fmt.Errorf("error: IdemCloseChan.AddChild(): error
 // ClosedWithReason with the same reason
 // as h, if any is available.
 func (h *Halter) AddChild(child *Halter) {
-	//vv("Halter(%p).AddChild(%p)  h.ReqStop=%p  child.ReqStop=%p", h, child, h.ReqStop, child.ReqStop)
+	//vv("Halter(%p).AddChild(%p)  h.ReqStop=%p  child.ReqStop=%p; caller:%v", h, child, h.ReqStop, child.ReqStop, fileLine(2))
 	if child == h {
 		panic(ErrHalterCycle)
 	}
@@ -715,11 +715,19 @@ func (c *IdemCloseChan) nolockingTaskAdd(delta int) (newval int) {
 // You can readily integrate c.Chan into your
 // own select statement.
 func (c *IdemCloseChan) TaskWait(giveup <-chan struct{}) (err error) {
-	select {
-	case <-giveup:
-		return ErrGiveUp
-	case <-c.Chan:
-		err, _ = c.Reason()
+	for {
+		select {
+		case <-giveup:
+			return ErrGiveUp
+		case <-c.Chan:
+			err, _ = c.Reason()
+			return
+			// case <-time.After(time.Second):
+			// 	mut.Lock()
+			// 	vv("TaskWait chan %p stalled on goro %v stalled, c.taskCount = %v", c, GoroNumber(), c.taskCount)
+			// 	mut.Unlock()
+			// 	continue
+		}
 	}
 	return
 }
