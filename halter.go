@@ -410,6 +410,19 @@ func (c *IdemCloseChan) nolockingAddChild(child *IdemCloseChan) {
 	c.children = append(c.children, child)
 }
 
+// RemoveFromParent is a no-op if there is
+// no parent Halter. Otherwise we ask the
+// parent to remove us from its list of children.
+func (h *Halter) RemoveFromParent() {
+	mut.Lock()
+	par := h.parent
+	mut.Unlock()
+	if par == nil {
+		return
+	}
+	par.RemoveChild(h)
+}
+
 // RemoveChild removes child from the set
 // of h.children. It does not undo any
 // close operation that AddChild did on addition.
@@ -470,7 +483,7 @@ func (h *Halter) waitTilDoneOrAtMost(atMost time.Duration, giveup <-chan struct{
 	timerGone := NewIdemCloseChan()
 	if atMost > 0 {
 		to = time.After(atMost)
-		//vv("the to timeout was made, to fire at %v", time.Now().Add(atMost))
+		//vv("the to timeout was made, to fire in %v at %v", atMost, time.Now().Add(atMost))
 	}
 	//vv("in waitTilDoneOrAtMost, atMost = %v, visitSelf=%v in h Halter=%p", atMost, visitSelf, h)
 	h.visit(visitSelf, func(y *Halter) {
@@ -488,7 +501,7 @@ func (h *Halter) waitTilDoneOrAtMost(atMost time.Duration, giveup <-chan struct{
 			}
 			isCycle[h] = true
 		}
-		//vv("timeout in waitTilDoneOrAtMost t=%p, atMost = %v, visitSelf=%v in h Halter=%p, y.Done= %p, y.Done.IsClosed=%v", to, atMost, visitSelf, h, y.Done, y.Done.IsClosed())
+		//vv("timeout in waitTilDoneOrAtMost to=%p, atMost = %v, visitSelf=%v in h Halter=%p, y.Done= %p, y.Done.IsClosed=%v", to, atMost, visitSelf, h, y.Done, y.Done.IsClosed())
 		select {
 		case <-y.Done.Chan:
 		case <-to:
