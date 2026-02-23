@@ -501,7 +501,11 @@ func (h *Halter) waitTilDoneOrAtMost(atMost time.Duration, giveup <-chan struct{
 			}
 			isCycle[h] = true
 		}
-		//vv("timeout in waitTilDoneOrAtMost to=%p, atMost = %v, visitSelf=%v in h Halter=%p, y.Done= %p, y.Done.IsClosed=%v", to, atMost, visitSelf, h, y.Done, y.Done.IsClosed())
+		// showed := false
+		// if !y.Done.IsClosed() {
+		// 	showed = true
+		// 	vv("timeout in waitTilDoneOrAtMost to=%p, atMost = %v, visitSelf=%v in h Halter=%p (%v), y.Done= %p, y.Done.Chan=%p  y.Done.IsClosed=%v (y.name='%v')", to, atMost, visitSelf, h, h.name, y.Done, y.Done.Chan, y.Done.IsClosed(), y.name)
+		// }
 		select {
 		case <-y.Done.Chan:
 		case <-to:
@@ -509,6 +513,9 @@ func (h *Halter) waitTilDoneOrAtMost(atMost time.Duration, giveup <-chan struct{
 		case <-timerGone.Chan:
 		case <-giveup:
 		}
+		// if showed {
+		// 	vv("completed for y.Done.Chan = %p; h = %p (%v); y.name='%v'", y.Done.Chan, h, h.name, y.name)
+		// }
 	})
 }
 
