@@ -631,3 +631,42 @@ func Test106TaskWait(t *testing.T) {
 		}
 	})
 }
+
+// Halter.RemoveChild returned as soon as it removed the child
+// from h.children, before unlinking child.ReqStop from h.ReqStop,
+// and neither RemoveChild cleared child.parent. The removed child
+// stayed reachable (a leak under churn), was still closed when the
+// parent was, and could never be added to another parent.
+func TestRemoveChildDetachesBothTrees(t *testing.T) {
+	parent := NewHalter()
+	child := NewHalter()
+	parent.AddChild(child)
+	parent.RemoveChild(child)
+
+	if child.parent != nil || child.ReqStop.parent != nil {
+		t.Fatal("removed child still records its parent")
+	}
+	parent.ReqStop.Close()
+	if child.ReqStop.IsClosed() {
+		t.Fatal("closing the parent still closed a removed child's ReqStop")
+	}
+
+	// the detached child can join another tree.
+	other := NewHalter()
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("re-adding a removed child panicked: %v", r)
+			}
+		}()
+		other.AddChild(child)
+	}()
+
+	// the IdemCloseChan level alone also clears the parent.
+	a, b := NewIdemCloseChan(), NewIdemCloseChan()
+	a.AddChild(b)
+	a.RemoveChild(b)
+	if b.parent != nil {
+		t.Fatal("IdemCloseChan.RemoveChild left the child's parent set")
+	}
+}

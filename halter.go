@@ -299,6 +299,10 @@ func (c *IdemCloseChan) nolockingRemoveChild(child *IdemCloseChan) {
 	for i, ch := range c.children {
 		if ch == child {
 			c.children = append(c.children[:i], c.children[i+1:]...)
+			// detached: it may join another parent later.
+			if child.parent == c {
+				child.parent = nil
+			}
 			return
 		}
 	}
@@ -435,10 +439,16 @@ func (h *Halter) nolockingRemoveChild(child *Halter) {
 	for i, ch := range h.children {
 		if ch == child {
 			h.children = append(h.children[:i], h.children[i+1:]...)
-			return
+			break
 		}
 	}
+	// Also unlink the parallel ReqStop tree. (This used to be
+	// skipped whenever the child was found above, leaking the
+	// child's ReqStop under the parent's, which still closed it.)
 	h.ReqStop.nolockingRemoveChild(child.ReqStop) // write race vs :364 read in Test408_multiple_circuits_open_and_close
+	if child.parent == h {
+		child.parent = nil
+	}
 }
 
 // StopTreeAndWaitTilDone first calls ReqStop.CloseWithReason(why)
